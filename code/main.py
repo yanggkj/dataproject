@@ -3,130 +3,188 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
 
-# 페이지 설정
+# Streamlit 페이지 설정
 st.set_page_config(
-    page_title="매체접점 인지·호감·구매 통합 데이터 분석",
+    page_title="매체접점 인지·호감·구매 기초통계분석",
     page_icon="📊",
     layout="wide"
 )
 
-# 한글 폰트 설정 (matplotlib)
-plt.rcParams['font.family'] = 'sans-serif'
+# Matplotlib 한글 폰트 깨짐 방지 설정
+plt.rcParams['font.sans-serif'] = ['Malgun Gothic', 'AppleGothic', 'NanumGothic', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
-st.title("📊 매체접점 인지·호감·구매 통합 데이터 분석 앱")
-st.markdown("제공된 데이터를 기반으로 기초 통계 분석과 데이터 타당성 검토를 수행하는 대시보드입니다.")
+st.title("📊 매체접점 연도별 인지·호감·구매 기초통계분석 앱")
+st.markdown("업로드된 **`매체접점_연도별_재구조화.csv`** 데이터를 바탕으로 기초 통계량 및 가증성 분석을 수행합니다.")
 
-# 데이터 로드 함수 (GitHub Raw 링크 활용)
+# 1. 데이터 로드 및 전처리
 @st.cache_data
-def load_data():
-    url = "https://raw.githubusercontent.com/yanggkj/dataproject/main/data/%EB%A7%A4%EC%B2%B4%EC%A0%91%EC%A0%90_%EC%9D%B8%EC%A7%80%ED%98%B8%EA%B0%90%EA%B5%AC%EB%A7%A4_%ED%86%B5%ED%95%A9%20(1).csv"
+def load_and_clean_data():
+    # 파일 경로 또는 파일 업로드 처리
+    # GitHub Raw 주소 또는 로컬 파일명 활용
+    file_path = "매체접점_연도별_재구조화.csv"
     try:
-        df = pd.read_csv(url, encoding='utf-8')
-    except Exception:
-        try:
-            df = pd.read_csv(url, encoding='cp949')
-        except Exception as e:
-            st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
-            df = None
-    return df
+        df = pd.read_csv(file_path, encoding='utf-8')
+    except:
+        df = pd.read_csv(file_path, encoding='cp949')
+    
+    # 구분/접점(매체)이 결측치인 행(연도 구분 구분용 데이터) 제거
+    cleaned_df = df.dropna(subset=['구분', '접점(매체)']).copy()
+    
+    # 연도 컬럼 정수형 변환
+    cleaned_df['연도'] = cleaned_df['연도'].astype(int)
+    
+    return cleaned_df
 
-df = load_data()
-
-if df is None:
+try:
+    df = load_and_clean_data()
+except Exception as e:
+    st.error(f"데이터를 로드하는 중 오류가 발생했습니다: {e}")
+    st.info("💡 GitHub 저장소 루트 폴더에 '매체접점_연도별_재구조화.csv' 파일이 있는지 확인해 주세요.")
     st.stop()
 
-# 사이드바 메뉴 구성
-menu = st.sidebar.selectbox(
-    "메뉴 선택",
-    ["1. 질문 검토 및 데이터 개요", "2. 기초 통계 분석", "3. 시각화 및 상관관계"]
+# 사이드바 구성
+st.sidebar.header("📌 메뉴")
+menu = st.sidebar.radio(
+    "이동할 메뉴를 선택하세요:",
+    [
+        "1. 질문 요건 검토 & 데이터 개요",
+        "2. 기초 통계 분석 (Descriptive)",
+        "3. 상관관계 및 회귀 분석",
+        "4. 연도별/매체별 분석"
+    ]
 )
 
-if menu == "1. 질문 검토 및 데이터 개요":
-    st.header("1. 질문 사항 검토 및 데이터 개요")
+# ---------------------------------------------------------
+# TAB 1: 질문 요건 검토 & 데이터 개요
+# ---------------------------------------------------------
+if menu == "1. 질문 요건 검토 & 데이터 개요":
+    st.header("1. 데이터 질문 요건 검토 결과")
     
-    st.subheader("📋 데이터 미리보기 (상위 5행)")
-    st.dataframe(df.head())
+    c1, c2 = st.columns(2)
+    with c1:
+        st.success("✅ **Q1. 데이터의 범위가 명확한가?**")
+        st.write("""
+        - **범위**: 2017년~2019년 주요 7개 구분(34개 매체 접점)의 마케팅 수치 데이터.
+        - **행/열 요건**: 
+            - 전체 데이터: **{}개 행**, **{}개 열** (요건: 행 50개 이상, 열 6개 이상 충족)
+        """.format(df.shape[0], df.shape[1]))
+        
+        st.success("✅ **Q2. 데이터를 수치화할 수 있는가?**")
+        st.write("""
+        - **수치형 열 (4개)**: `연도`, `인지(%)`, `호감(%)`, `구매(%)`
+        - 비율(%) 데이터로 정리되어 표준 정량 분석이 바로 가능합니다.
+        """)
+
+    with c2:
+        st.success("✅ **Q3. 회귀, 분류, 군집화, 연관 분석이 가능한가?**")
+        st.write("""
+        - **회귀 분석**: `인지(%)`, `호감(%)`이 `구매(%)`에 미치는 영향 규명 가능
+        - **분류/군집화**: 인지 대비 구매 전환율에 따른 고성과/저성과 매체 그룹핑(K-Means) 가능
+        - **시계열/트렌드**: 2017~2019년 연도별 흐름 비교 분석 가능
+        """)
+
+    st.markdown("---")
+    st.subheader("📋 전처리된 데이터 미리보기 (상위 10개 행)")
+    st.dataframe(df.head(10), use_container_width=True)
+
+# ---------------------------------------------------------
+# TAB 2: 기초 통계 분석
+# ---------------------------------------------------------
+elif menu == "2. 기초 통계 분석 (Descriptive)":
+    st.header("2. 기초 통계 분석")
+    
+    st.subheader("📌 주요 수치형 데이터 요약 통계량")
+    stats_df = df[['인지(%)', '호감(%)', '구매(%)']].describe().T
+    stats_df['median'] = df[['인지(%)', '호감(%)', '구매(%)']].median()
+    st.dataframe(stats_df[['count', 'mean', 'std', 'min', '25%', 'median', '75%', 'max']], use_container_width=True)
     
     st.markdown("---")
-    st.subheader("🔍 사용자 질문 검토 결과")
+    st.subheader("📊 지표별 분포 (Histogram & Boxplot)")
     
-    col1, col2 = st.columns(2)
+    col_choice = st.selectbox("분석할 지표 선택:", ['인지(%)', '호감(%)', '구매(%)'])
     
+    fig, ax = plt.subplots(1, 2, figsize=(12, 4))
+    
+    # 히스토그램
+    sns.histplot(df[col_choice].dropna(), kde=True, ax=ax[0], color='skyblue')
+    ax[0].set_title(f"{col_choice} 히스토그램")
+    
+    # 박스플롯
+    sns.boxplot(y=df[col_choice].dropna(), ax=ax[1], color='lightgreen')
+    ax[1].set_title(f"{col_choice} 박스플롯")
+    
+    st.pyplot(fig)
+
+# ---------------------------------------------------------
+# TAB 3: 상관관계 및 회귀 분석
+# ---------------------------------------------------------
+elif menu == "3. 상관관계 및 회귀 분석":
+    st.header("3. 상관관계 및 간단한 회귀 분석")
+    
+    # 상관계수
+    st.subheader("🔗 지표 간 상관계수 (Correlation)")
+    corr = df[['인지(%)', '호감(%)', '구매(%)']].corr()
+    
+    col1, col2 = st.columns([1, 1])
     with col1:
-        st.info("**Q1. 데이터의 범위가 명확한가?**")
-        st.write(
-            "- **검토 결과**: 매체접점별 인지, 호감, 구매 단계에 이르는 마케팅/서베이 데이터를 대상으로 하므로 분석 범위가 비교적 명확합니다.\n"
-            f"- **데이터 규모**: 총 행(Row) {df.shape[0]}개, 총 열(Column) {df.shape[1]}개로 구성되어 있습니다."
-        )
-        
-        st.info("**Q2. 데이터를 수치화할 수 있는가?**")
-        st.write(
-            "- **검토 결과**: 점수, 응답 빈도, 비율 등 수치형 열이 4개 이상 포함되어 있어 정량적인 수치화 및 통계 분석이 충분히 가능합니다."
-        )
-        
+        st.dataframe(corr, use_container_width=True)
     with col2:
-        st.info("**Q3. 회귀, 분류, 군집화, 연관 분석이 가능한가?**")
-        st.write(
-            "- **회귀분석**: 매체접점 인지·호감이 '구매'에 미치는 영향 분석 가능\n"
-            "- **분류**: 특정 타겟(구매 여부 등) 예측 모델 적용 가능\n"
-            "- **군집화**: 응답자 또는 매체별 유사 성향 그룹화 가능\n"
-            "- **연관 분석**: 매체 간 조합이나 항목 간 연관성 분석 가능"
-        )
-        
-    st.markdown("---")
-    st.subheader("📊 데이터 구조 요약")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("행(Row) 개수", f"{df.shape[0]}개")
-    c2.metric("열(Column) 개수", f"{df.shape[1]}개")
-    numeric_cols = df.select_dtypes(include=[np.number]).columns
-    c3.metric("수치형 열 개수", f"{len(numeric_cols)}개")
-
-elif menu == "2. 기초 통계 분석":
-    st.header("2. 기초 통계 분석 (Descriptive Statistics)")
-    
-    st.subheader("📈 수치형 변수 기술통계량")
-    st.dataframe(df.describe())
-    
-    st.subheader("🔎 개별 변수 분포 확인")
-    numeric_cols = list(df.select_dtypes(include=[np.number]).columns)
-    
-    if numeric_cols:
-        selected_col = st.selectbox("분석할 수치형 열 선택", numeric_cols)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write(f"**{selected_col} 상세 통계**")
-            st.write(df[selected_col].describe())
-        with col2:
-            fig, ax = plt.subplots(figsize=(6, 4))
-            sns.histplot(df[selected_col], kde=True, ax=ax, color='teal')
-            ax.set_title(f"{selected_col} 분포")
-            st.pyplot(fig)
-    else:
-        st.warning("분석할 수치형 데이터가 없습니다.")
-
-elif menu == "3. 시각화 및 상관관계":
-    st.header("3. 변수 간 상관관계 및 시각화")
-    
-    numeric_cols = list(df.select_dtypes(include=[np.number]).columns)
-    
-    if len(numeric_cols) >= 2:
-        st.subheader("🔗 상관관계 히트맵")
-        corr = df[numeric_cols].corr()
-        
-        fig, ax = plt.subplots(figsize=(8, 6))
-        sns.heatmap(corr, annot=True, cmap="Blues", fmt=".2f", linewidths=.5, ax=ax)
+        fig, ax = plt.subplots(figsize=(5, 4))
+        sns.heatmap(corr, annot=True, cmap="YlGnBu", fmt=".3f", ax=ax)
+        ax.set_title("상관계수 히트맵")
         st.pyplot(fig)
         
-        st.subheader("📉 변수 간 산점도 (Scatter Plot)")
-        col_x = st.selectbox("X축 변수 선택", numeric_cols, index=0)
-        col_y = st.selectbox("Y축 변수 선택", numeric_cols, index=1 if len(numeric_cols) > 1 else 0)
-        
-        fig2, ax2 = plt.subplots(figsize=(8, 5))
-        sns.scatterplot(data=df, x=col_x, y=col_y, ax=ax2, color='purple', s=80)
-        ax2.set_title(f"{col_x} vs {col_y}")
-        st.pyplot(fig2)
-    else:
-        st.warning("상관관계를 분석하려면 수치형 열이 최소 2개 이상 필요합니다.")
+    st.markdown("---")
+    st.subheader("📈 선형 회귀 분석 (Linear Regression)")
+    
+    x_var = st.selectbox("독립변수 (X) 선택:", ['인지(%)', '호감(%)'])
+    
+    sub_df = df[[x_var, '구매(%)']].dropna()
+    X = sub_df[[x_var]]
+    y = sub_df['구매(%)']
+    
+    model = LinearRegression()
+    model.fit(X, y)
+    y_pred = model.predict(X)
+    r2 = r2_score(y, y_pred)
+    
+    st.write(f"- **회귀 방정식**: `구매(%)` = {model.coef_[0]:.4f} * `{x_var}` + ({model.intercept_:.4f})")
+    st.write(f"- **결정계수 ($R^2$)**: {r2:.4f}")
+    
+    fig, ax = plt.subplots(figsize=(8, 4))
+    sns.regplot(data=sub_df, x=x_var, y='구매(%)', ax=ax, scatter_kws={'alpha':0.6}, line_kws={'color':'red'})
+    ax.set_title(f"{x_var}에 따른 구매(%) 회귀선")
+    st.pyplot(fig)
+
+# ---------------------------------------------------------
+# TAB 4: 연도별/매체별 분석
+# ---------------------------------------------------------
+elif menu == "4. 연도별/매체별 분석":
+    st.header("4. 연도별 및 매체 구분별 비교 분석")
+    
+    st.subheader("📅 연도별 평균 지표 비교")
+    yearly_avg = df.groupby('연도')[['인지(%)', '호감(%)', '구매(%)']].mean()
+    st.dataframe(yearly_avg, use_container_width=True)
+    
+    fig, ax = plt.subplots(figsize=(8, 4))
+    yearly_avg.plot(kind='bar', ax=ax)
+    ax.set_title("연도별 평균 인지 / 호감 / 구매 (%)")
+    ax.set_ylabel("비율 (%)")
+    plt.xticks(rotation=0)
+    st.pyplot(fig)
+    
+    st.markdown("---")
+    st.subheader("🏷️ 매체 구분별 평균 지표")
+    category_avg = df.groupby('구분')[['인지(%)', '호감(%)', '구매(%)']].mean().sort_values(by='구매(%)', ascending=False)
+    st.dataframe(category_avg, use_container_width=True)
+    
+    fig2, ax2 = plt.subplots(figsize=(10, 5))
+    category_avg.plot(kind='barh', ax=ax2)
+    ax2.set_title("매체 구분별 평균 인지 / 호감 / 구매 (%)")
+    ax2.set_xlabel("비율 (%)")
+    ax2.invert_yaxis()
+    st.pyplot(fig2)
