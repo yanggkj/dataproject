@@ -158,11 +158,20 @@ elif menu == "3. 상관관계 및 회귀 분석":
     st.write(f"- **회귀 방정식**: `구매(%)` = {model.coef_[0]:.4f} * `{x_var}` + ({model.intercept_:.4f})")
     st.write(f"- **결정계수 ($R^2$)**: {r2:.4f}")
     
-    # Plotly Scatter + Trendline
+    # Plotly Scatter 생성 및 수동 회귀선 추가 (statsmodels 의존성 제거)
     fig_reg = px.scatter(
         sub_df, x=x_var, y='구매(%)', hover_data=['접점(매체)', '연도'],
-        trendline="ols", title=f"{x_var}에 따른 구매(%) 회귀 분석"
+        title=f"{x_var}에 따른 구매(%) 회귀 분석"
     )
+    
+    # 회귀선 추가
+    x_range = np.linspace(sub_df[x_var].min(), sub_df[x_var].max(), 100)
+    y_range = model.coef_[0] * x_range + model.intercept_
+    
+    fig_reg.add_trace(
+        go.Scatter(x=x_range, y=y_range, mode='lines', name='회귀선', line=dict(color='red', width=2))
+    )
+    
     fig_reg.update_traces(marker=dict(size=8, color='purple'))
     st.plotly_chart(fig_reg, use_container_width=True)
 
