@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 import os
@@ -14,20 +14,13 @@ st.set_page_config(
     layout="wide"
 )
 
-# Matplotlib 한글 폰트 깨짐 방지 설정
-plt.rcParams['font.sans-serif'] = ['Malgun Gothic', 'AppleGothic', 'NanumGothic', 'DejaVu Sans']
-plt.rcParams['axes.unicode_minus'] = False
+st.title("📊 매체접점 연도별 인지·호감·구매 기초통계분석 앱 (Plotly)")
+st.markdown("업로드된 **`매체접점_연도별_재구조화.csv`** 데이터를 바탕으로 Plotly 인터랙티브 시각화를 수행합니다.")
 
-st.title("📊 매체접점 연도별 인지·호감·구매 기초통계분석 앱")
-st.markdown("업로드된 **`매체접점_연도별_재구조화.csv`** 데이터를 바탕으로 기초 통계량 및 분석을 수행합니다.")
-
-# 1. 경로 자동 탐색을 통한 데이터 로드 및 전처리
+# 경로 자동 탐색을 통한 데이터 로드 및 전처리 함수
 @st.cache_data
 def load_and_clean_data():
-    # 현재 스크립트(main.py)의 폴더 위치 파악
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # 시도해볼 파일 경로 후보들 (상위 폴더의 data, 현재 폴더의 data, 혹은 동일 폴더 등)
     possible_paths = [
         os.path.join(current_dir, "../data/매체접점_연도별_재구조화.csv"),
         os.path.join(current_dir, "data/매체접점_연도별_재구조화.csv"),
@@ -37,28 +30,23 @@ def load_and_clean_data():
     ]
     
     df = None
-    success_path = ""
     for path in possible_paths:
         if os.path.exists(path):
             try:
                 df = pd.read_csv(path, encoding='utf-8')
-                success_path = path
                 break
             except:
                 try:
                     df = pd.read_csv(path, encoding='cp949')
-                    success_path = path
                     break
                 except:
                     continue
                     
     if df is None:
-        raise FileNotFoundError("지정한 경로에서 파일을 찾을 수 없습니다. 파일 위치를 확인해주세요.")
+        raise FileNotFoundError("지정한 경로에서 파일을 찾을 수 없습니다.")
     
     # 구분/접점(매체)이 결측치인 행 제거
     cleaned_df = df.dropna(subset=['구분', '접점(매체)']).copy()
-    
-    # 연도 컬럼 정수형 변환
     cleaned_df['연도'] = cleaned_df['연도'].astype(int)
     
     return cleaned_df
@@ -67,7 +55,6 @@ try:
     df = load_and_clean_data()
 except Exception as e:
     st.error(f"데이터를 로드하는 중 오류가 발생했습니다: {e}")
-    st.info("💡 `data` 폴더 안에 `매체접점_연도별_재구조화.csv` 파일이 정확히 있는지 확인해 주세요.")
     st.stop()
 
 # 사이드바 구성
@@ -93,26 +80,24 @@ if menu == "1. 질문 요건 검토 & 데이터 개요":
         st.success("✅ **Q1. 데이터의 범위가 명확한가?**")
         st.write(f"""
         - **범위**: 2017년~2019년 주요 7개 구분(34개 매체 접점)의 마케팅 수치 데이터.
-        - **행/열 요건**: 
-            - 전체 데이터: **{df.shape[0]}개 행**, **{df.shape[1]}개 열** (요건: 행 50개 이상, 열 6개 이상 충족)
+        - **행/열 요건**: 전체 데이터 **{df.shape[0]}개 행**, **{df.shape[1]}개 열** (행 50개 이상, 열 6개 이상 충족)
         """)
         
         st.success("✅ **Q2. 데이터를 수치화할 수 있는가?**")
         st.write("""
-        - **수치형 열 (4개)**: `연도`, `인지(%)`, `호감(%)`, `구매(%)`
-        - 비율(%) 데이터로 정리되어 표준 정량 분석이 바로 가능합니다.
+        - **수치형 열 (4개)**: `연도`, `인지(%)`, `호감(%)`, `구매(%)` (정량 수치화 완료)
         """)
 
     with c2:
         st.success("✅ **Q3. 회귀, 분류, 군집화, 연관 분석이 가능한가?**")
         st.write("""
-        - **회귀 분석**: `인지(%)`, `호감(%)`이 `구매(%)`에 미치는 영향 규명 가능
-        - **분류/군집화**: 인지 대비 구매 전환율에 따른 고성과/저성과 매체 그룹핑 가능
-        - **시계열/트렌드**: 2017~2019년 연도별 흐름 비교 분석 가능
+        - **회귀 분석**: 인지/호감이 구매에 미치는 영향 분석 가능
+        - **군집화/분류**: 매체별 성과 그룹핑 가능
+        - **시계열**: 연도별 트렌드 비교 가능
         """)
 
     st.markdown("---")
-    st.subheader("📋 전처리된 데이터 미리보기 (상위 10개 행)")
+    st.subheader("📋 전처리된 데이터 미리보기")
     st.dataframe(df.head(10), use_container_width=True)
 
 # ---------------------------------------------------------
@@ -127,18 +112,18 @@ elif menu == "2. 기초 통계 분석 (Descriptive)":
     st.dataframe(stats_df[['count', 'mean', 'std', 'min', '25%', 'median', '75%', 'max']], use_container_width=True)
     
     st.markdown("---")
-    st.subheader("📊 지표별 분포 (Histogram & Boxplot)")
+    st.subheader("📊 지표별 분포 (Plotly Interactive Histogram & Boxplot)")
     
     col_choice = st.selectbox("분석할 지표 선택:", ['인지(%)', '호감(%)', '구매(%)'])
     
-    fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-    sns.histplot(df[col_choice].dropna(), kde=True, ax=ax[0], color='skyblue')
-    ax[0].set_title(f"{col_choice} 히스토그램")
-    
-    sns.boxplot(y=df[col_choice].dropna(), ax=ax[1], color='lightgreen')
-    ax[1].set_title(f"{col_choice} 박스플롯")
-    
-    st.pyplot(fig)
+    c1, c2 = st.columns(2)
+    with c1:
+        fig_hist = px.histogram(df, x=col_choice, nbins=20, title=f"{col_choice} 히스토그램", marginal="rug", color_discrete_sequence=['teal'])
+        st.plotly_chart(fig_hist, use_container_width=True)
+        
+    with c2:
+        fig_box = px.box(df, y=col_choice, title=f"{col_choice} 박스플롯", points="all", color_discrete_sequence=['lightgreen'])
+        st.plotly_chart(fig_box, use_container_width=True)
 
 # ---------------------------------------------------------
 # TAB 3: 상관관계 및 회귀 분석
@@ -146,39 +131,40 @@ elif menu == "2. 기초 통계 분석 (Descriptive)":
 elif menu == "3. 상관관계 및 회귀 분석":
     st.header("3. 상관관계 및 간단한 회귀 분석")
     
-    st.subheader("🔗 지표 간 상관계수 (Correlation)")
+    st.subheader("🔗 지표 간 상관계수 히트맵")
     corr = df[['인지(%)', '호감(%)', '구매(%)']].corr()
     
     col1, col2 = st.columns([1, 1])
     with col1:
         st.dataframe(corr, use_container_width=True)
     with col2:
-        fig, ax = plt.subplots(figsize=(5, 4))
-        sns.heatmap(corr, annot=True, cmap="YlGnBu", fmt=".3f", ax=ax)
-        ax.set_title("상관계수 히트맵")
-        st.pyplot(fig)
+        fig_corr = px.imshow(corr, text_auto=True, color_continuous_scale='Blues', title="상관계수 히트맵")
+        st.plotly_chart(fig_corr, use_container_width=True)
         
     st.markdown("---")
     st.subheader("📈 선형 회귀 분석 (Linear Regression)")
     
     x_var = st.selectbox("독립변수 (X) 선택:", ['인지(%)', '호감(%)'])
     
-    sub_df = df[[x_var, '구매(%)']].dropna()
+    sub_df = df[[x_var, '구매(%)', '접점(매체)', '연도']].dropna()
     X = sub_df[[x_var]]
     y = sub_df['구매(%)']
     
     model = LinearRegression()
     model.fit(X, y)
-    y_pred = model.predict(X)
-    r2 = r2_score(y, y_pred)
+    sub_df['회귀예측값'] = model.predict(X)
+    r2 = r2_score(y, sub_df['회귀예측값'])
     
     st.write(f"- **회귀 방정식**: `구매(%)` = {model.coef_[0]:.4f} * `{x_var}` + ({model.intercept_:.4f})")
     st.write(f"- **결정계수 ($R^2$)**: {r2:.4f}")
     
-    fig, ax = plt.subplots(figsize=(8, 4))
-    sns.regplot(data=sub_df, x=x_var, y='구매(%)', ax=ax, scatter_kws={'alpha':0.6}, line_kws={'color':'red'})
-    ax.set_title(f"{x_var}에 따른 구매(%) 회귀선")
-    st.pyplot(fig)
+    # Plotly Scatter + Trendline
+    fig_reg = px.scatter(
+        sub_df, x=x_var, y='구매(%)', hover_data=['접점(매체)', '연도'],
+        trendline="ols", title=f"{x_var}에 따른 구매(%) 회귀 분석"
+    )
+    fig_reg.update_traces(marker=dict(size=8, color='purple'))
+    st.plotly_chart(fig_reg, use_container_width=True)
 
 # ---------------------------------------------------------
 # TAB 4: 연도별/매체별 분석
@@ -187,24 +173,17 @@ elif menu == "4. 연도별/매체별 분석":
     st.header("4. 연도별 및 매체 구분별 비교 분석")
     
     st.subheader("📅 연도별 평균 지표 비교")
-    yearly_avg = df.groupby('연도')[['인지(%)', '호감(%)', '구매(%)']].mean()
-    st.dataframe(yearly_avg, use_container_width=True)
+    yearly_avg = df.groupby('연도')[['인지(%)', '호감(%)', '구매(%)']].mean().reset_index()
+    yearly_melted = yearly_avg.melt(id_vars='연도', value_vars=['인지(%)', '호감(%)', '구매(%)'], var_name='지표', value_name='평균비율(%)')
     
-    fig, ax = plt.subplots(figsize=(8, 4))
-    yearly_avg.plot(kind='bar', ax=ax)
-    ax.set_title("연도별 평균 인지 / 호감 / 구매 (%)")
-    ax.set_ylabel("비율 (%)")
-    plt.xticks(rotation=0)
-    st.pyplot(fig)
+    fig_year = px.bar(yearly_melted, x='연도', y='평균비율(%)', color='지표', barmode='group', title="연도별 평균 인지 / 호감 / 구매 (%)")
+    st.plotly_chart(fig_year, use_container_width=True)
     
     st.markdown("---")
     st.subheader("🏷️ 매체 구분별 평균 지표")
-    category_avg = df.groupby('구분')[['인지(%)', '호감(%)', '구매(%)']].mean().sort_values(by='구매(%)', ascending=False)
-    st.dataframe(category_avg, use_container_width=True)
+    category_avg = df.groupby('구분')[['인지(%)', '호감(%)', '구매(%)']].mean().reset_index()
+    category_melted = category_avg.melt(id_vars='구분', value_vars=['인지(%)', '호감(%)', '구매(%)'], var_name='지표', value_name='평균비율(%)')
     
-    fig2, ax2 = plt.subplots(figsize=(10, 5))
-    category_avg.plot(kind='barh', ax=ax2)
-    ax2.set_title("매체 구분별 평균 인지 / 호감 / 구매 (%)")
-    ax2.set_xlabel("비율 (%)")
-    ax2.invert_yaxis()
-    st.pyplot(fig2)
+    fig_cat = px.bar(category_melted, y='구분', x='평균비율(%)', color='지표', orientation='h', barmode='group', title="매체 구분별 평균 인지 / 호감 / 구매 (%)")
+    fig_cat.update_layout(yaxis={'categoryorder':'total ascending'})
+    st.plotly_chart(fig_cat, use_container_width=True)
