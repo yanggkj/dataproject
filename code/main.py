@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
+import os
 
 # Streamlit 페이지 설정
 st.set_page_config(
@@ -18,16 +19,41 @@ plt.rcParams['font.sans-serif'] = ['Malgun Gothic', 'AppleGothic', 'NanumGothic'
 plt.rcParams['axes.unicode_minus'] = False
 
 st.title("📊 매체접점 연도별 인지·호감·구매 기초통계분석 앱")
-st.markdown("업로드된 **`data/매체접점_연도별_재구조화.csv`** 데이터를 바탕으로 기초 통계량 및 분석을 수행합니다.")
+st.markdown("업로드된 **`매체접점_연도별_재구조화.csv`** 데이터를 바탕으로 기초 통계량 및 분석을 수행합니다.")
 
-# 1. 데이터 로드 및 전처리 (상위 폴더의 data 경로 지정)
+# 1. 경로 자동 탐색을 통한 데이터 로드 및 전처리
 @st.cache_data
 def load_and_clean_data():
-    file_path = "../data/매체접점_연도별_재구조화.csv"
-    try:
-        df = pd.read_csv(file_path, encoding='utf-8')
-    except:
-        df = pd.read_csv(file_path, encoding='cp949')
+    # 현재 스크립트(main.py)의 폴더 위치 파악
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 시도해볼 파일 경로 후보들 (상위 폴더의 data, 현재 폴더의 data, 혹은 동일 폴더 등)
+    possible_paths = [
+        os.path.join(current_dir, "../data/매체접점_연도별_재구조화.csv"),
+        os.path.join(current_dir, "data/매체접점_연도별_재구조화.csv"),
+        os.path.join(current_dir, "매체접점_연도별_재구조화.csv"),
+        "data/매체접점_연도별_재구조화.csv",
+        "매체접점_연도별_재구조화.csv"
+    ]
+    
+    df = None
+    success_path = ""
+    for path in possible_paths:
+        if os.path.exists(path):
+            try:
+                df = pd.read_csv(path, encoding='utf-8')
+                success_path = path
+                break
+            except:
+                try:
+                    df = pd.read_csv(path, encoding='cp949')
+                    success_path = path
+                    break
+                except:
+                    continue
+                    
+    if df is None:
+        raise FileNotFoundError("지정한 경로에서 파일을 찾을 수 없습니다. 파일 위치를 확인해주세요.")
     
     # 구분/접점(매체)이 결측치인 행 제거
     cleaned_df = df.dropna(subset=['구분', '접점(매체)']).copy()
@@ -41,7 +67,7 @@ try:
     df = load_and_clean_data()
 except Exception as e:
     st.error(f"데이터를 로드하는 중 오류가 발생했습니다: {e}")
-    st.info("💡 `code` 폴더 기준으로 상위 폴더에 있는 `data` 폴더와 파일명을 다시 확인해 주세요.")
+    st.info("💡 `data` 폴더 안에 `매체접점_연도별_재구조화.csv` 파일이 정확히 있는지 확인해 주세요.")
     st.stop()
 
 # 사이드바 구성
