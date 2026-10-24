@@ -18,20 +18,18 @@ plt.rcParams['font.sans-serif'] = ['Malgun Gothic', 'AppleGothic', 'NanumGothic'
 plt.rcParams['axes.unicode_minus'] = False
 
 st.title("📊 매체접점 연도별 인지·호감·구매 기초통계분석 앱")
-st.markdown("업로드된 **`매체접점_연도별_재구조화.csv`** 데이터를 바탕으로 기초 통계량 및 가증성 분석을 수행합니다.")
+st.markdown("업로드된 **`data/매체접점_연도별_재구조화.csv`** 데이터를 바탕으로 기초 통계량 및 분석을 수행합니다.")
 
-# 1. 데이터 로드 및 전처리
+# 1. 데이터 로드 및 전처리 (상위 폴더의 data 경로 지정)
 @st.cache_data
 def load_and_clean_data():
-    # 파일 경로 또는 파일 업로드 처리
-    # GitHub Raw 주소 또는 로컬 파일명 활용
-    file_path = "매체접점_연도별_재구조화.csv"
+    file_path = "../data/매체접점_연도별_재구조화.csv"
     try:
         df = pd.read_csv(file_path, encoding='utf-8')
     except:
         df = pd.read_csv(file_path, encoding='cp949')
     
-    # 구분/접점(매체)이 결측치인 행(연도 구분 구분용 데이터) 제거
+    # 구분/접점(매체)이 결측치인 행 제거
     cleaned_df = df.dropna(subset=['구분', '접점(매체)']).copy()
     
     # 연도 컬럼 정수형 변환
@@ -43,7 +41,7 @@ try:
     df = load_and_clean_data()
 except Exception as e:
     st.error(f"데이터를 로드하는 중 오류가 발생했습니다: {e}")
-    st.info("💡 GitHub 저장소 루트 폴더에 '매체접점_연도별_재구조화.csv' 파일이 있는지 확인해 주세요.")
+    st.info("💡 `code` 폴더 기준으로 상위 폴더에 있는 `data` 폴더와 파일명을 다시 확인해 주세요.")
     st.stop()
 
 # 사이드바 구성
@@ -67,11 +65,11 @@ if menu == "1. 질문 요건 검토 & 데이터 개요":
     c1, c2 = st.columns(2)
     with c1:
         st.success("✅ **Q1. 데이터의 범위가 명확한가?**")
-        st.write("""
+        st.write(f"""
         - **범위**: 2017년~2019년 주요 7개 구분(34개 매체 접점)의 마케팅 수치 데이터.
         - **행/열 요건**: 
-            - 전체 데이터: **{}개 행**, **{}개 열** (요건: 행 50개 이상, 열 6개 이상 충족)
-        """.format(df.shape[0], df.shape[1]))
+            - 전체 데이터: **{df.shape[0]}개 행**, **{df.shape[1]}개 열** (요건: 행 50개 이상, 열 6개 이상 충족)
+        """)
         
         st.success("✅ **Q2. 데이터를 수치화할 수 있는가?**")
         st.write("""
@@ -83,7 +81,7 @@ if menu == "1. 질문 요건 검토 & 데이터 개요":
         st.success("✅ **Q3. 회귀, 분류, 군집화, 연관 분석이 가능한가?**")
         st.write("""
         - **회귀 분석**: `인지(%)`, `호감(%)`이 `구매(%)`에 미치는 영향 규명 가능
-        - **분류/군집화**: 인지 대비 구매 전환율에 따른 고성과/저성과 매체 그룹핑(K-Means) 가능
+        - **분류/군집화**: 인지 대비 구매 전환율에 따른 고성과/저성과 매체 그룹핑 가능
         - **시계열/트렌드**: 2017~2019년 연도별 흐름 비교 분석 가능
         """)
 
@@ -108,12 +106,9 @@ elif menu == "2. 기초 통계 분석 (Descriptive)":
     col_choice = st.selectbox("분석할 지표 선택:", ['인지(%)', '호감(%)', '구매(%)'])
     
     fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-    
-    # 히스토그램
     sns.histplot(df[col_choice].dropna(), kde=True, ax=ax[0], color='skyblue')
     ax[0].set_title(f"{col_choice} 히스토그램")
     
-    # 박스플롯
     sns.boxplot(y=df[col_choice].dropna(), ax=ax[1], color='lightgreen')
     ax[1].set_title(f"{col_choice} 박스플롯")
     
@@ -125,7 +120,6 @@ elif menu == "2. 기초 통계 분석 (Descriptive)":
 elif menu == "3. 상관관계 및 회귀 분석":
     st.header("3. 상관관계 및 간단한 회귀 분석")
     
-    # 상관계수
     st.subheader("🔗 지표 간 상관계수 (Correlation)")
     corr = df[['인지(%)', '호감(%)', '구매(%)']].corr()
     
