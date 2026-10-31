@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.figure_factory as ff
 
 # 페이지 기본 설정
 st.set_page_config(
@@ -10,25 +9,53 @@ st.set_page_config(
     layout="wide"
 )
 
-# 데이터 로드 함수 (캐싱 적용)
-@st.cache_data
-def load_data():
-    # 파일명이 다를 경우 실제 데이터 파일 경로로 변경하세요.
-    df = pd.read_csv('processed_data_korean_v3.csv')
-    return df
-
-try:
-    df = load_data()
-except Exception as e:
-    st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
-    st.stop()
-
-# 대시보드 제목 및 설명
 st.title("📊 고객 행동 데이터 기초통계분석 대시보드")
 st.markdown("---")
 
-# 사이드바 설정
-st.sidebar.header("⚙️ 분석 설정")
+# 사이드바 설정 및 파일 업로드
+st.sidebar.header("📁 데이터 설정")
+uploaded_file = st.sidebar.file_uploader("CSV 파일 업로드 (선택사항)", type=["csv"])
+
+# 데이터 로드 함수 (캐싱 적용)
+@st.cache_data
+def load_data(file_path):
+    return pd.read_csv(file_path)
+
+df = None
+
+# 1. 사이드바에서 파일을 업로드한 경우
+if uploaded_file is not None:
+    try:
+        df = pd.read_csv(uploaded_file)
+        st.sidebar.success("업로드된 파일 불러오기 성공!")
+    except Exception as e:
+        st.sidebar.error(f"업로드 파일 읽기 오류: {e}")
+
+# 2. 업로드하지 않은 경우 지정된 경로('data/processed_data_korean_v3.csv') 탐색
+else:
+    # 탐색할 경로 목록 (data 폴더 내 우선 탐색)
+    possible_paths = [
+        'data/processed_data_korean_v3.csv',
+        'processed_data_korean_v3.csv'
+    ]
+    
+    for path in possible_paths:
+        try:
+            df = load_data(path)
+            st.sidebar.info(f"불러온 파일 경로: `{path}`")
+            break
+        except FileNotFoundError:
+            continue
+
+# 파일이 끝내 찾아지지 않은 경우 예외 처리
+if df is None:
+    st.error("❌ 데이터를 찾을 수 없습니다.")
+    st.info("`data/processed_data_korean_v3.csv` 경로에 파일이 있는지 확인하거나, 왼쪽 사이드바에서 CSV 파일을 직접 업로드해 주세요.")
+    st.stop()
+
+# ---------------------------------------------------------
+# 대시보드 메인 화면 구현
+# ---------------------------------------------------------
 
 # 분석 대상 수치형 컬럼 선택 (식별용 '번호' 제외)
 numeric_cols = [c for c in df.columns if c not in ['번호']]
@@ -39,9 +66,13 @@ col1, col2, col3, col4, col5 = st.columns(5)
 
 col1.metric("총 데이터 수 (행)", f"{len(df):,}개")
 col2.metric("총 변수 수 (열)", f"{len(df.columns)}개")
-col3.metric("평균 체류시간", f"{df['체류시간_초'].mean():.1f} 초")
-col4.metric("평균 장바구니 금액", f"{df['장바구니_금액'].mean():,.0f} 원")
-col5.metric("전환율", f"{(df['전환_여부'].mean() * 100):.2f}%")
+
+if '체류시간_초' in df.columns:
+    col3.metric("평균 체류시간", f"{df['체류시간_초'].mean():.1f} 초")
+if '장바구니_금액' in df.columns:
+    col4.metric("평균 장바구니 금액", f"{df['장바구니_금액'].mean():,.0f} 원")
+if '전환_여부' in df.columns:
+    col5.metric("전환율", f"{(df['전환_여부'].mean() * 100):.2f}%")
 
 st.markdown("---")
 
@@ -71,7 +102,6 @@ with tab2:
     col_left, col_right = st.columns(2)
     
     with col_left:
-        # 히스토그램 (Plotly)
         fig_hist = px.histogram(
             df, 
             x=selected_var, 
@@ -83,7 +113,6 @@ with tab2:
         st.plotly_chart(fig_hist, use_container_width=True)
         
     with col_right:
-        # 상자 그림 (Boxplot)
         fig_box = px.box(
             df, 
             y=selected_var, 
@@ -97,7 +126,6 @@ with tab3:
     st.markdown("### 수치형 변수 간 상관관계 히트맵")
     corr = df[numeric_cols].corr()
     
-    # Plotly Correlation Heatmap
     fig_corr = px.imshow(
         corr,
         text_auto=".2f",
@@ -111,15 +139,19 @@ with tab3:
 with tab4:
     st.markdown("### 전환 및 이탈 여부에 따른 주요 변수 비교")
     
-    group_target = st.radio("비교 기준 타겟 변수 선택:", ['전환_여부', '이탈_여부'], horizontal=True)
-    compare_var = st.selectbox("비교할 대상 변수 선택:", [c for c in numeric_cols if c not in ['전환_여부', '이탈_여부']], index=0)
-    
-    fig_group = px.box(
-        df, 
-        x=group_target, 
-        y=compare_var, 
-        color=group_target,
-        title=f"{group_target}에 따른 {compare_var} 차이 분석",
-        color_discrete_map={0: '#FF9900', 1: '#109618'}
-    )
-    st.plotly_chart(fig_group, use_container_width=True)
+    target_options = [c for c in ['전환_여부', '이탈_여부'] if c in df.columns]
+    if target_options:
+        group_target = st.radio("비교 기준 타겟 변수 선택:", target_options, horizontal=True)
+        compare_vars = [c for c in numeric_cols if c not in ['전환_여부', '이탈_여부']]
+        if compare_vars:
+            compare_var = st.selectbox("비교할 대상 변수 선택:", compare_vars, index=0)
+            
+            fig_group = px.box(
+                df, 
+                x=group_target, 
+                y=compare_var, 
+                color=group_target,
+                title=f"{group_target}에 따른 {compare_var} 차이 분석",
+                color_discrete_map={0: '#FF9900', 1: '#109618'}
+            )
+            st.plotly_chart(fig_group, use_container_width=True)
