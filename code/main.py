@@ -4,7 +4,7 @@ import plotly.express as px
 
 # 페이지 기본 설정
 st.set_page_config(
-    page_title="고객 행동 데이터 기초통계분석",
+    page_tㅁ="고객 행동 데이터 기초통계분석",
     page_icon="📊",
     layout="wide"
 )
