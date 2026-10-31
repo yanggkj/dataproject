@@ -1,198 +1,125 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score
-import os
+import plotly.figure_factory as ff
 
-# Streamlit 페이지 설정
+# 페이지 기본 설정
 st.set_page_config(
-    page_title="매체접점 인지·호감·구매 기초통계분석",
+    page_title="고객 행동 데이터 기초통계분석",
     page_icon="📊",
     layout="wide"
 )
 
-st.title("📊 매체접점 연도별 인지·호감·구매 기초통계분석 앱 (Plotly)")
-st.markdown("업로드된 **`매체접점_연도별_재구조화.csv`** 데이터를 바탕으로 Plotly 인터랙티브 시각화를 수행합니다.")
-
-# 경로 자동 탐색을 통한 데이터 로드 및 전처리 함수
+# 데이터 로드 함수 (캐싱 적용)
 @st.cache_data
-def load_and_clean_data():
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    possible_paths = [
-        os.path.join(current_dir, "../data/매체접점_연도별_재구조화.csv"),
-        os.path.join(current_dir, "data/매체접점_연도별_재구조화.csv"),
-        os.path.join(current_dir, "매체접점_연도별_재구조화.csv"),
-        "data/매체접점_연도별_재구조화.csv",
-        "매체접점_연도별_재구조화.csv"
-    ]
-    
-    df = None
-    for path in possible_paths:
-        if os.path.exists(path):
-            try:
-                df = pd.read_csv(path, encoding='utf-8')
-                break
-            except:
-                try:
-                    df = pd.read_csv(path, encoding='cp949')
-                    break
-                except:
-                    continue
-                    
-    if df is None:
-        raise FileNotFoundError("지정한 경로에서 파일을 찾을 수 없습니다.")
-    
-    # 구분/접점(매체)이 결측치인 행 제거
-    cleaned_df = df.dropna(subset=['구분', '접점(매체)']).copy()
-    cleaned_df['연도'] = cleaned_df['연도'].astype(int)
-    
-    return cleaned_df
+def load_data():
+    # 파일명이 다를 경우 실제 데이터 파일 경로로 변경하세요.
+    df = pd.read_csv('processed_data_korean_v3.csv')
+    return df
 
 try:
-    df = load_and_clean_data()
+    df = load_data()
 except Exception as e:
-    st.error(f"데이터를 로드하는 중 오류가 발생했습니다: {e}")
+    st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
     st.stop()
 
-# 사이드바 구성
-st.sidebar.header("📌 메뉴")
-menu = st.sidebar.radio(
-    "이동할 메뉴를 선택하세요:",
-    [
-        "1. 질문 요건 검토 & 데이터 개요",
-        "2. 기초 통계 분석 (Descriptive)",
-        "3. 상관관계 및 회귀 분석",
-        "4. 연도별/매체별 분석"
-    ]
-)
+# 대시보드 제목 및 설명
+st.title("📊 고객 행동 데이터 기초통계분석 대시보드")
+st.markdown("---")
 
-# ---------------------------------------------------------
-# TAB 1: 질문 요건 검토 & 데이터 개요
-# ---------------------------------------------------------
-if menu == "1. 질문 요건 검토 & 데이터 개요":
-    st.header("1. 데이터 질문 요건 검토 결과")
-    
-    c1, c2 = st.columns(2)
-    with c1:
-        st.success("✅ **Q1. 데이터의 범위가 명확한가?**")
-        st.write(f"""
-        - **범위**: 2017년~2019년 주요 7개 구분(34개 매체 접점)의 마케팅 수치 데이터.
-        - **행/열 요건**: 전체 데이터 **{df.shape[0]}개 행**, **{df.shape[1]}개 열** (행 50개 이상, 열 6개 이상 충족)
-        """)
-        
-        st.success("✅ **Q2. 데이터를 수치화할 수 있는가?**")
-        st.write("""
-        - **수치형 열 (4개)**: `연도`, `인지(%)`, `호감(%)`, `구매(%)` (정량 수치화 완료)
-        """)
+# 사이드바 설정
+st.sidebar.header("⚙️ 분석 설정")
 
-    with c2:
-        st.success("✅ **Q3. 회귀, 분류, 군집화, 연관 분석이 가능한가?**")
-        st.write("""
-        - **회귀 분석**: 인지/호감이 구매에 미치는 영향 분석 가능
-        - **군집화/분류**: 매체별 성과 그룹핑 가능
-        - **시계열**: 연도별 트렌드 비교 가능
-        """)
+# 분석 대상 수치형 컬럼 선택 (식별용 '번호' 제외)
+numeric_cols = [c for c in df.columns if c not in ['번호']]
 
-    st.markdown("---")
-    st.subheader("📋 전처리된 데이터 미리보기")
+# 메인 KPI 요약
+st.subheader("📌 핵심 데이터 요약 (KPI)")
+col1, col2, col3, col4, col5 = st.columns(5)
+
+col1.metric("총 데이터 수 (행)", f"{len(df):,}개")
+col2.metric("총 변수 수 (열)", f"{len(df.columns)}개")
+col3.metric("평균 체류시간", f"{df['체류시간_초'].mean():.1f} 초")
+col4.metric("평균 장바구니 금액", f"{df['장바구니_금액'].mean():,.0f} 원")
+col5.metric("전환율", f"{(df['전환_여부'].mean() * 100):.2f}%")
+
+st.markdown("---")
+
+# 탭 구성
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📋 데이터 미리보기 & 요약통계", 
+    "📈 변수별 분포 분석", 
+    "🔗 상관관계 분석", 
+    "🎯 이탈/전환 그룹 비교"
+])
+
+# TAB 1: 데이터 미리보기 & 기술통계
+with tab1:
+    st.markdown("### 1. 데이터 샘플 (상위 10개 행)")
     st.dataframe(df.head(10), use_container_width=True)
 
-# ---------------------------------------------------------
-# TAB 2: 기초 통계 분석
-# ---------------------------------------------------------
-elif menu == "2. 기초 통계 분석 (Descriptive)":
-    st.header("2. 기초 통계 분석")
+    st.markdown("### 2. 기술통계량 (Descriptive Statistics)")
+    stats_df = df[numeric_cols].describe().T[['count', 'mean', 'std', 'min', '25%', '50%', '75%', 'max']]
+    stats_df.columns = ['개수', '평균', '표준편차', '최소값', '25%', '중앙값(50%)', '75%', '최대값']
+    st.dataframe(stats_df.style.format("{:.2f}"), use_container_width=True)
+
+# TAB 2: 단일 변수 분포 분석 (Plotly)
+with tab2:
+    st.markdown("### 변수별 데이터 분포 확인")
+    selected_var = st.selectbox("분석할 변수를 선택하세요:", numeric_cols, index=0)
     
-    st.subheader("📌 주요 수치형 데이터 요약 통계량")
-    stats_df = df[['인지(%)', '호감(%)', '구매(%)']].describe().T
-    stats_df['median'] = df[['인지(%)', '호감(%)', '구매(%)']].median()
-    st.dataframe(stats_df[['count', 'mean', 'std', 'min', '25%', 'median', '75%', 'max']], use_container_width=True)
+    col_left, col_right = st.columns(2)
     
-    st.markdown("---")
-    st.subheader("📊 지표별 분포 (Plotly Interactive Histogram & Boxplot)")
-    
-    col_choice = st.selectbox("분석할 지표 선택:", ['인지(%)', '호감(%)', '구매(%)'])
-    
-    c1, c2 = st.columns(2)
-    with c1:
-        fig_hist = px.histogram(df, x=col_choice, nbins=20, title=f"{col_choice} 히스토그램", marginal="rug", color_discrete_sequence=['teal'])
+    with col_left:
+        # 히스토그램 (Plotly)
+        fig_hist = px.histogram(
+            df, 
+            x=selected_var, 
+            nbins=30, 
+            title=f"[{selected_var}] 히스토그램",
+            color_discrete_sequence=['#3366CC']
+        )
+        fig_hist.update_layout(bargap=0.1)
         st.plotly_chart(fig_hist, use_container_width=True)
         
-    with c2:
-        fig_box = px.box(df, y=col_choice, title=f"{col_choice} 박스플롯", points="all", color_discrete_sequence=['lightgreen'])
+    with col_right:
+        # 상자 그림 (Boxplot)
+        fig_box = px.box(
+            df, 
+            y=selected_var, 
+            title=f"[{selected_var}] 상자 그림 (Box Plot)",
+            color_discrete_sequence=['#109618']
+        )
         st.plotly_chart(fig_box, use_container_width=True)
 
-# ---------------------------------------------------------
-# TAB 3: 상관관계 및 회귀 분석
-# ---------------------------------------------------------
-elif menu == "3. 상관관계 및 회귀 분석":
-    st.header("3. 상관관계 및 간단한 회귀 분석")
+# TAB 3: 상관관계 분석
+with tab3:
+    st.markdown("### 수치형 변수 간 상관관계 히트맵")
+    corr = df[numeric_cols].corr()
     
-    st.subheader("🔗 지표 간 상관계수 히트맵")
-    corr = df[['인지(%)', '호감(%)', '구매(%)']].corr()
-    
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        st.dataframe(corr, use_container_width=True)
-    with col2:
-        fig_corr = px.imshow(corr, text_auto=True, color_continuous_scale='Blues', title="상관계수 히트맵")
-        st.plotly_chart(fig_corr, use_container_width=True)
-        
-    st.markdown("---")
-    st.subheader("📈 선형 회귀 분석 (Linear Regression)")
-    
-    x_var = st.selectbox("독립변수 (X) 선택:", ['인지(%)', '호감(%)'])
-    
-    sub_df = df[[x_var, '구매(%)', '접점(매체)', '연도']].dropna()
-    X = sub_df[[x_var]]
-    y = sub_df['구매(%)']
-    
-    model = LinearRegression()
-    model.fit(X, y)
-    sub_df['회귀예측값'] = model.predict(X)
-    r2 = r2_score(y, sub_df['회귀예측값'])
-    
-    st.write(f"- **회귀 방정식**: `구매(%)` = {model.coef_[0]:.4f} * `{x_var}` + ({model.intercept_:.4f})")
-    st.write(f"- **결정계수 ($R^2$)**: {r2:.4f}")
-    
-    # Plotly Scatter 생성 및 수동 회귀선 추가 (statsmodels 의존성 제거)
-    fig_reg = px.scatter(
-        sub_df, x=x_var, y='구매(%)', hover_data=['접점(매체)', '연도'],
-        title=f"{x_var}에 따른 구매(%) 회귀 분석"
+    # Plotly Correlation Heatmap
+    fig_corr = px.imshow(
+        corr,
+        text_auto=".2f",
+        aspect="auto",
+        color_continuous_scale="RdBu_r",
+        title="변수 간 Pearson 상관계수 Matrix"
     )
-    
-    # 회귀선 추가
-    x_range = np.linspace(sub_df[x_var].min(), sub_df[x_var].max(), 100)
-    y_range = model.coef_[0] * x_range + model.intercept_
-    
-    fig_reg.add_trace(
-        go.Scatter(x=x_range, y=y_range, mode='lines', name='회귀선', line=dict(color='red', width=2))
-    )
-    
-    fig_reg.update_traces(marker=dict(size=8, color='purple'))
-    st.plotly_chart(fig_reg, use_container_width=True)
+    st.plotly_chart(fig_corr, use_container_width=True)
 
-# ---------------------------------------------------------
-# TAB 4: 연도별/매체별 분석
-# ---------------------------------------------------------
-elif menu == "4. 연도별/매체별 분석":
-    st.header("4. 연도별 및 매체 구분별 비교 분석")
+# TAB 4: 이탈/전환 타겟 변수별 비교
+with tab4:
+    st.markdown("### 전환 및 이탈 여부에 따른 주요 변수 비교")
     
-    st.subheader("📅 연도별 평균 지표 비교")
-    yearly_avg = df.groupby('연도')[['인지(%)', '호감(%)', '구매(%)']].mean().reset_index()
-    yearly_melted = yearly_avg.melt(id_vars='연도', value_vars=['인지(%)', '호감(%)', '구매(%)'], var_name='지표', value_name='평균비율(%)')
+    group_target = st.radio("비교 기준 타겟 변수 선택:", ['전환_여부', '이탈_여부'], horizontal=True)
+    compare_var = st.selectbox("비교할 대상 변수 선택:", [c for c in numeric_cols if c not in ['전환_여부', '이탈_여부']], index=0)
     
-    fig_year = px.bar(yearly_melted, x='연도', y='평균비율(%)', color='지표', barmode='group', title="연도별 평균 인지 / 호감 / 구매 (%)")
-    st.plotly_chart(fig_year, use_container_width=True)
-    
-    st.markdown("---")
-    st.subheader("🏷️ 매체 구분별 평균 지표")
-    category_avg = df.groupby('구분')[['인지(%)', '호감(%)', '구매(%)']].mean().reset_index()
-    category_melted = category_avg.melt(id_vars='구분', value_vars=['인지(%)', '호감(%)', '구매(%)'], var_name='지표', value_name='평균비율(%)')
-    
-    fig_cat = px.bar(category_melted, y='구분', x='평균비율(%)', color='지표', orientation='h', barmode='group', title="매체 구분별 평균 인지 / 호감 / 구매 (%)")
-    fig_cat.update_layout(yaxis={'categoryorder':'total ascending'})
-    st.plotly_chart(fig_cat, use_container_width=True)
+    fig_group = px.box(
+        df, 
+        x=group_target, 
+        y=compare_var, 
+        color=group_target,
+        title=f"{group_target}에 따른 {compare_var} 차이 분석",
+        color_discrete_map={0: '#FF9900', 1: '#109618'}
+    )
+    st.plotly_chart(fig_group, use_container_width=True)
