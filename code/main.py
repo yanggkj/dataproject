@@ -4,7 +4,7 @@ import plotly.express as px
 
 # 페이지 기본 설정
 st.set_page_config(
-    page_tㅁ="고객 행동 데이터 기초통계분석",
+    page_title="고객 행동 데이터 기초통계분석",
     page_icon="📊",
     layout="wide"
 )
@@ -31,9 +31,8 @@ if uploaded_file is not None:
     except Exception as e:
         st.sidebar.error(f"업로드 파일 읽기 오류: {e}")
 
-# 2. 업로드하지 않은 경우 지정된 경로('data/processed_data_korean_v3.csv') 탐색
+# 2. 업로드하지 않은 경우 지정된 경로('data/processed_data_korean_v3.csv' 또는 루트) 탐색
 else:
-    # 탐색할 경로 목록 (data 폴더 내 우선 탐색)
     possible_paths = [
         'data/processed_data_korean_v3.csv',
         'processed_data_korean_v3.csv'
@@ -47,7 +46,6 @@ else:
         except FileNotFoundError:
             continue
 
-# 파일이 끝내 찾아지지 않은 경우 예외 처리
 if df is None:
     st.error("❌ 데이터를 찾을 수 없습니다.")
     st.info("`data/processed_data_korean_v3.csv` 경로에 파일이 있는지 확인하거나, 왼쪽 사이드바에서 CSV 파일을 직접 업로드해 주세요.")
@@ -57,10 +55,9 @@ if df is None:
 # 대시보드 메인 화면 구현
 # ---------------------------------------------------------
 
-# 분석 대상 수치형 컬럼 선택 (식별용 '번호' 제외)
 numeric_cols = [c for c in df.columns if c not in ['번호']]
 
-# 메인 KPI 요약
+# 메인 KPI 요약 ('원' 단위 제거 및 직관적 표현)
 st.subheader("📌 핵심 데이터 요약 (KPI)")
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -70,7 +67,8 @@ col2.metric("총 변수 수 (열)", f"{len(df.columns)}개")
 if '체류시간_초' in df.columns:
     col3.metric("평균 체류시간", f"{df['체류시간_초'].mean():.1f} 초")
 if '장바구니_금액' in df.columns:
-    col4.metric("평균 장바구니 금액", f"{df['장바구니_금액'].mean():,.0f} 원")
+    # '원' 단위를 제거하고 cart_value 고유의 의미 반영
+    col4.metric("평균 장바구니 가치", f"{df['장바구니_금액'].mean():,.0f}")
 if '전환_여부' in df.columns:
     col5.metric("전환율", f"{(df['전환_여부'].mean() * 100):.2f}%")
 
@@ -124,6 +122,8 @@ with tab2:
 # TAB 3: 상관관계 분석
 with tab3:
     st.markdown("### 수치형 변수 간 상관관계 히트맵")
+    st.info("💡 참고: 현재 데이터셋의 상관계수가 0에 가까운 것은 데이터가 무작위(Random) 난수로 생성되어 변수 간 뚜렷한 선형 관계가 없기 때문입니다.")
+    
     corr = df[numeric_cols].corr()
     
     fig_corr = px.imshow(
