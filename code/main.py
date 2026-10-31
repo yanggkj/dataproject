@@ -4,12 +4,12 @@ import plotly.express as px
 
 # 페이지 기본 설정
 st.set_page_config(
-    page_title="고객 행동 데이터 기초통계분석",
-    page_icon="📊",
+    page_title="소매업 사용자 행동 기초통계분석",
+    page_icon="🛍️",
     layout="wide"
 )
 
-st.title("📊 고객 행동 데이터 기초통계분석 대시보드")
+st.title("🛍️ 소매업 사용자 행동 데이터 기초통계분석 대시보드")
 st.markdown("---")
 
 # 사이드바 설정 및 파일 업로드
@@ -31,11 +31,11 @@ if uploaded_file is not None:
     except Exception as e:
         st.sidebar.error(f"업로드 파일 읽기 오류: {e}")
 
-# 2. 업로드하지 않은 경우 지정된 경로('data/processed_data_korean_v3.csv' 또는 루트) 탐색
+# 2. 업로드하지 않은 경우 data 폴더 내 지정된 경로 탐색
 else:
     possible_paths = [
-        'data/processed_data_korean_v3.csv',
-        'processed_data_korean_v3.csv'
+        'data/processed_retail_user_behavior_korean.csv',
+        'processed_retail_user_behavior_korean.csv'
     ]
     
     for path in possible_paths:
@@ -48,16 +48,17 @@ else:
 
 if df is None:
     st.error("❌ 데이터를 찾을 수 없습니다.")
-    st.info("`data/processed_data_korean_v3.csv` 경로에 파일이 있는지 확인하거나, 왼쪽 사이드바에서 CSV 파일을 직접 업로드해 주세요.")
+    st.info("`data/processed_retail_user_behavior_korean.csv` 경로에 파일이 있는지 확인하거나, 왼쪽 사이드바에서 CSV 파일을 직접 업로드해 주세요.")
     st.stop()
 
 # ---------------------------------------------------------
 # 대시보드 메인 화면 구현
 # ---------------------------------------------------------
 
+# 수치형 컬럼 선별 (식별용 '번호' 제외)
 numeric_cols = [c for c in df.columns if c not in ['번호']]
 
-# 메인 KPI 요약 ('원' 단위 제거 및 직관적 표현)
+# 메인 KPI 요약
 st.subheader("📌 핵심 데이터 요약 (KPI)")
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -66,9 +67,8 @@ col2.metric("총 변수 수 (열)", f"{len(df.columns)}개")
 
 if '체류시간_초' in df.columns:
     col3.metric("평균 체류시간", f"{df['체류시간_초'].mean():.1f} 초")
-if '장바구니_금액' in df.columns:
-    # '원' 단위를 제거하고 cart_value 고유의 의미 반영
-    col4.metric("평균 장바구니 가치", f"{df['장바구니_금액'].mean():,.0f}")
+if '가격' in df.columns:
+    col4.metric("평균 상품 가격", f"{df['가격'].mean():,.2f}")
 if '전환_여부' in df.columns:
     col5.metric("전환율", f"{(df['전환_여부'].mean() * 100):.2f}%")
 
@@ -88,52 +88,62 @@ with tab1:
     st.dataframe(df.head(10), use_container_width=True)
 
     st.markdown("### 2. 기술통계량 (Descriptive Statistics)")
-    stats_df = df[numeric_cols].describe().T[['count', 'mean', 'std', 'min', '25%', '50%', '75%', 'max']]
-    stats_df.columns = ['개수', '평균', '표준편차', '최소값', '25%', '중앙값(50%)', '75%', '최대값']
-    st.dataframe(stats_df.style.format("{:.2f}"), use_container_width=True)
+    # 수치형 데이터만 대상으로 기술통계 추출
+    num_df_only = df.select_dtypes(include=['number']).drop(columns=['번호'], errors='ignore')
+    if not num_df_only.empty:
+        stats_df = num_df_only.describe().T[['count', 'mean', 'std', 'min', '25%', '50%', '75%', 'max']]
+        stats_df.columns = ['개수', '평균', '표준편차', '최소값', '25%', '중앙값(50%)', '75%', '최대값']
+        st.dataframe(stats_df.style.format("{:.2f}"), use_container_width=True)
+    else:
+        st.warning("표시할 수치형 변수가 없습니다.")
 
 # TAB 2: 단일 변수 분포 분석 (Plotly)
 with tab2:
     st.markdown("### 변수별 데이터 분포 확인")
-    selected_var = st.selectbox("분석할 변수를 선택하세요:", numeric_cols, index=0)
-    
-    col_left, col_right = st.columns(2)
-    
-    with col_left:
-        fig_hist = px.histogram(
-            df, 
-            x=selected_var, 
-            nbins=30, 
-            title=f"[{selected_var}] 히스토그램",
-            color_discrete_sequence=['#3366CC']
-        )
-        fig_hist.update_layout(bargap=0.1)
-        st.plotly_chart(fig_hist, use_container_width=True)
+    num_cols_for_plot = [c for c in num_df_only.columns]
+    if num_cols_for_plot:
+        selected_var = st.selectbox("분석할 수치형 변수를 선택하세요:", num_cols_for_plot, index=0)
         
-    with col_right:
-        fig_box = px.box(
-            df, 
-            y=selected_var, 
-            title=f"[{selected_var}] 상자 그림 (Box Plot)",
-            color_discrete_sequence=['#109618']
-        )
-        st.plotly_chart(fig_box, use_container_width=True)
+        col_left, col_right = st.columns(2)
+        
+        with col_left:
+            fig_hist = px.histogram(
+                df, 
+                x=selected_var, 
+                nbins=30, 
+                title=f"[{selected_var}] 히스토그램",
+                color_discrete_sequence=['#3366CC']
+            )
+            fig_hist.update_layout(bargap=0.1)
+            st.plotly_chart(fig_hist, use_container_width=True)
+            
+        with col_right:
+            fig_box = px.box(
+                df, 
+                y=selected_var, 
+                title=f"[{selected_var}] 상자 그림 (Box Plot)",
+                color_discrete_sequence=['#109618']
+            )
+            st.plotly_chart(fig_box, use_container_width=True)
+    else:
+        st.warning("선택 가능한 수치형 변수가 없습니다.")
 
 # TAB 3: 상관관계 분석
 with tab3:
     st.markdown("### 수치형 변수 간 상관관계 히트맵")
-    st.info("💡 참고: 현재 데이터셋의 상관계수가 0에 가까운 것은 데이터가 무작위(Random) 난수로 생성되어 변수 간 뚜렷한 선형 관계가 없기 때문입니다.")
-    
-    corr = df[numeric_cols].corr()
-    
-    fig_corr = px.imshow(
-        corr,
-        text_auto=".2f",
-        aspect="auto",
-        color_continuous_scale="RdBu_r",
-        title="변수 간 Pearson 상관계수 Matrix"
-    )
-    st.plotly_chart(fig_corr, use_container_width=True)
+    if not num_df_only.empty:
+        corr = num_df_only.corr()
+        
+        fig_corr = px.imshow(
+            corr,
+            text_auto=".2f",
+            aspect="auto",
+            color_continuous_scale="RdBu_r",
+            title="수치형 변수 간 Pearson 상관계수 Matrix"
+        )
+        st.plotly_chart(fig_corr, use_container_width=True)
+    else:
+        st.warning("상관관계를 분석할 수치형 데이터가 부족합니다.")
 
 # TAB 4: 이탈/전환 타겟 변수별 비교
 with tab4:
@@ -142,7 +152,8 @@ with tab4:
     target_options = [c for c in ['전환_여부', '이탈_여부'] if c in df.columns]
     if target_options:
         group_target = st.radio("비교 기준 타겟 변수 선택:", target_options, horizontal=True)
-        compare_vars = [c for c in numeric_cols if c not in ['전환_여부', '이탈_여부']]
+        compare_vars = [c for c in num_cols_for_plot if c not in ['전환_여부', '이탈_여부']]
+        
         if compare_vars:
             compare_var = st.selectbox("비교할 대상 변수 선택:", compare_vars, index=0)
             
@@ -155,3 +166,7 @@ with tab4:
                 color_discrete_map={0: '#FF9900', 1: '#109618'}
             )
             st.plotly_chart(fig_group, use_container_width=True)
+        else:
+            st.warning("비교할 대상 변수가 부족합니다.")
+    else:
+        st.info("데이터셋에 '전환_여부' 또는 '이탈_여부' 컬럼이 존재하지 않습니다.")
