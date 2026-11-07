@@ -42,8 +42,7 @@ if df is None:
     st.stop()
 
 # 서버 메모리 보호 및 속도를 위한 가벼운 샘플링 (2,000건)
-sample_n = min(2000, len(df))
-df_sample = df.sample(n=sample_n, random_state=42).copy().reset_index(drop=True)
+df_sample = df.sample(n=min(2000, len(df)), random_state=42).copy().reset_index(drop=True)
 
 # ---------------------------------------------------------
 # 전처리 및 차원 축소 (PCA & t-SNE) 수행
@@ -66,11 +65,8 @@ X_pca = pca.fit_transform(X_processed)
 df_sample['PCA1'] = X_pca[:, 0]
 df_sample['PCA2'] = X_pca[:, 1]
 
-# 2. t-SNE (데이터 샘플 수에 맞춰 perplexity 자동 조절로 에러 방지)
-n_samples = X_processed.shape[0]
-dynamic_perplexity = min(30, max(5, n_samples // 3))
-
-tsne = TSNE(n_components=2, perplexity=dynamic_perplexity, random_state=42, n_iter=300)
+# 2. t-SNE (비선형 차원 축소)
+tsne = TSNE(n_components=2, perplexity=30, random_state=42, n_iter=300)
 X_tsne = tsne.fit_transform(X_processed)
 df_sample['t-SNE1'] = X_tsne[:, 0]
 df_sample['t-SNE2'] = X_tsne[:, 1]
@@ -101,7 +97,7 @@ with tab_pca:
     st.info("💡 **PCA 설명:** 데이터의 분산을 최대한 보존하면서 여러 변수들을 직교하는 2개의 주성분(PCA1, PCA2)으로 압축하여 전체적인 군집 분포를 보여줍니다.")
 
 with tab_tsne:
-    st.markdown(f"#### t-SNE 2차원 군집화 시각화 (Perplexity: {dynamic_perplexity})")
+    st.markdown("#### t-SNE 2차원 군집화 시각화")
     fig_tsne = px.scatter(
         df_sample, x='t-SNE1', y='t-SNE2', color='군집', symbol='기기_유형',
         title="t-SNE 차원 축소 결과 (비선형 군집 구조 시각화)",
@@ -131,6 +127,7 @@ col_h1, col_h2 = st.columns(2)
 
 with col_h1:
     st.markdown("#### [동작별] 수치형 평균 프로파일 히트맵")
+    # 사용자 동작별 수치형 변수 평균 계산
     profile_action = df.groupby('사용자_동작')[num_cols].mean()
     
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -140,6 +137,7 @@ with col_h1:
 
 with col_h2:
     st.markdown("#### [기기 유형별] 주요 행동 지표 프로파일 히트맵")
+    # 기기 유형별 수치형 변수 평균 계산
     profile_device = df.groupby('기기_유형')[num_cols].mean()
     
     fig2, ax2 = plt.subplots(figsize=(8, 5))
@@ -148,4 +146,4 @@ with col_h2:
     st.pyplot(fig2)
 
 st.markdown("---")
-st.success("✅ t-SNE perplexity 동적 조절 코드가 반영되어 에러 없이 정상 구동됩니다.")
+st.success("✅ PCA, t-SNE 산점도와 Seaborn 기반의 프로파일 히트맵 시각화가 성공적으로 적용되었습니다.")
