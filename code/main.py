@@ -18,8 +18,8 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🎯 고객 참여도(Engagement) 기반 3가지 군집화 모델 분석")
-st.markdown("체류 시간과 상호작용 수를 결합한 **'참여도 스코어'**를 산출하고, **중심·분포·계층 기반**의 3가지 군집화 모델로 사용자의 행동 몰림 현상을 분석합니다.")
+st.title("🎯 고객 참여도(Engagement) 기반 군집화 & 엘보우 분석 대시보드")
+st.markdown("참여도 스코어를 바탕으로 3가지 비지도 군집화 모델을 평가하고, **엘보우 방법**으로 최적의 군집 개수를 탐색합니다.")
 st.markdown("---")
 
 # ---------------------------------------------------------
@@ -119,38 +119,51 @@ ch_agg = calinski_harabasz_score(X_processed, labels_agg)
 db_agg = davies_bouldin_score(X_processed, labels_agg)
 
 # ---------------------------------------------------------
-# 2. 3가지 군집화 모델 성능 지표 비교 표
+# 2. 3가지 군집화 모델 성능 지표 비교 표 (한글 표기)
 # ---------------------------------------------------------
 st.subheader("2. 🤖 3가지 비지도 군집화 모델 성능 지표 비교")
-st.markdown("비지도 학습 평가 지표인 **실루엣 계수(Silhouette)**, **칼린스키-하바라슈(Calinski-Harabasz)**, **데이비스-불딘(Davies-Bouldin)**을 통해 군집 품질을 평가합니다.")
+st.markdown("비지도 학습 평가 지표인 **실루엣 계수**, **칼린스키-하바라슈 지수**, **데이비스-불딘 지수**를 통해 군집 품질을 평가합니다.")
 
 models_summary = [
-    {"군집화 유형": "중심 기반", "대표 모델": "K-Means", "실루엣 계수": sil_km, "Calinski-Harabasz": ch_km, "Davies-Bouldin": db_km},
-    {"군집화 유형": "분포 기반", "대표 모델": "GMM", "실루엣 계수": sil_gmm, "Calinski-Harabasz": ch_gmm, "Davies-Bouldin": db_gmm},
-    {"군집화 유형": "계층 기반", "대표 모델": "Agglomerative", "실루엣 계수": sil_agg, "Calinski-Harabasz": ch_agg, "Davies-Bouldin": db_agg},
+    {"군집화 유형": "중심 기반", "대표 모델": "K-Means", "실루엣 계수": sil_km, "칼린스키-하바라슈 지수": ch_km, "데이비스-불딘 지수": db_km},
+    {"군집화 유형": "분포 기반", "대표 모델": "GMM", "실루엣 계수": sil_gmm, "칼린스키-하바라슈 지수": ch_gmm, "데이비스-불딘 지수": db_gmm},
+    {"군집화 유형": "계층 기반", "대표 모델": "Agglomerative", "실루엣 계수": sil_agg, "칼린스키-하바라슈 지수": ch_agg, "데이비스-불딘 지수": db_agg},
 ]
 
 st.table(pd.DataFrame(models_summary).style.format({
     "실루엣 계수": "{:.4f}",
-    "Calinski-Harabasz": "{:.2f}",
-    "Davies-Bouldin": "{:.4f}"
+    "칼린스키-하바라슈 지수": "{:.2f}",
+    "데이비스-불딘 지수": "{:.4f}"
 }))
 
 # ---------------------------------------------------------
-# 3. 내가 고른 모델과 그 이유
+# 3. 엘보우(Elbow) 방법 시각화 추가
 # ---------------------------------------------------------
-st.markdown("### 💡 내가 고른 모델과 그 이유")
-st.info("""
-**🏆 최종 선택 모델: 중심 기반 군집화 (K-Means)**
-* **선택 이유:** 참여도 스코어와 체류 시간 기반의 고객 행동 데이터를 가장 직관적이고 균형 있게 두 개의 그룹(고참여 몰입 그룹 vs 저참여 이탈 그룹)으로 나누어 주며, 실루엣 점수와 군집 응집도가 안정적이기 때문입니다.
-""")
+st.subheader("3. 📉 엘보우(Elbow) 방법을 통한 최적의 군집 개수 탐색")
+st.markdown("K-Means 모델의 군집 개수(K)를 1부터 8까지 늘려가며 오차(Inertia) 변화를 관찰하여 최적의 꺾임 지점을 찾습니다.")
+
+inertia_values = []
+k_range = range(1, 9)
+for k in k_range:
+    km_test = KMeans(n_clusters=k, random_state=42, n_init=5)
+    km_test.fit(X_processed)
+    inertia_values.append(km_test.inertia_)
+
+elbow_df = pd.DataFrame({"군집_개수_K": list(k_range), "오차합계_Inertia": inertia_values})
+fig_elbow = px.line(
+    elbow_df, x="군집_개수_K", y="오차합계_Inertia", markers=True,
+    title="[엘보우 곡선] 최적의 군집 개수 탐색",
+    labels={"군집_개수_K": "군집 개수 (K)", "오차합계_Inertia": "군집 내 오차 합계 (Inertia)"}
+)
+st.plotly_chart(fig_elbow, use_container_width=True)
+st.info("💡 **엘보우 분석 팁:** 그래프가 팔꿈치처럼 완만하게 꺾이는 구간(일반적으로 K=2 또는 K=3 지점)이 분석에 가장 적합한 군집 개수입니다.")
 
 st.markdown("---")
 
 # ---------------------------------------------------------
 # 4. 시각화 영역: 산점도 및 교차 히트맵
 # ---------------------------------------------------------
-st.subheader("3. 📈 모델별 산점도(Scatter Plot) 및 사용자 동작 교차 히트맵(Cross Heatmap)")
+st.subheader("4. 📈 모델별 산점도 및 사용자 동작 교차 히트맵")
 
 tab_scatter, tab_heatmap = st.tabs(["산점도 시각화", "사용자 동작 교차 히트맵"])
 
@@ -202,4 +215,4 @@ with tab_heatmap:
         labels=dict(x="사용자 동작 (User Action)", y="군집 그룹 (Cluster)", color="세션 수")
     )
     st.plotly_chart(fig_heat, use_container_width=True)
-    st.info("💡 **교차 히트맵 설명:** 각 군집 그룹 안에서 유저들이 **어떤 `사용자_동작`(조회, 장바구니, 클릭 등)에 가장 많이 몰려있는지** 빈도수를 색상 농도로 명확하게 파악할 수 있어 연구 목적에 완벽히 부합합니다.")
+    st.info("💡 **교차 히트맵 설명:** 각 군집 그룹 안에서 유저들이 **어떤 `사용자_동작`(조회, 장바구니, 클릭 등)에 가장 많이 몰려있는지** 빈도수를 색상 농도로 명확하게 파악할 수 있습니다.")
