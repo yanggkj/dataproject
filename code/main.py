@@ -5,22 +5,21 @@ import plotly.express as px
 
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
-from sklearn.cluster import KMeans, DBSCAN
+from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
 from sklearn.mixture import GaussianMixture
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, precision_score, recall_score, silhouette_score
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 
 # ---------------------------------------------------------
 # 페이지 설정
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="리테일 고객 행동 분석 대시보드",
+    page_title="고객 참여도 및 행동 몰림 군집화 분석 대시보드",
     page_icon="🎯",
     layout="wide"
 )
 
-st.title("🎯 사용자 행동 몰림 현상 & 교차 히트맵 분석 대시보드")
-st.markdown("로지스틱 회귀 및 3가지 군집화 모델을 활용하여 사용자 행동 체류 현황을 파악하고, **산점도**와 **동작별 교차 히트맵**으로 모델별 특성을 비교합니다.")
+st.title("🎯 고객 참여도(Engagement) 기반 4가지 군집화 모델 분석")
+st.markdown("체류 시간과 상호작용 수를 결합한 **'참여도 스코어'**를 산출하고, 4가지 비지도 군집화 모델을 통해 **사용자들이 어느 행동 단계와 참여도 구간에 가장 많이 몰려있는지** 분석합니다.")
 st.markdown("---")
 
 # ---------------------------------------------------------
@@ -45,6 +44,17 @@ sample_size = min(3000, len(df))
 df_sample = df.sample(n=sample_size, random_state=42).copy().reset_index(drop=True)
 
 # ---------------------------------------------------------
+# 4번 방식: 참여도 스코어(Engagement Score) 산출
+# ---------------------------------------------------------
+min_t, max_t = df_sample['체류시간_초'].min(), df_sample['체류시간_초'].max()
+min_i, max_i = df_sample['상호작용_수'].min(), df_sample['상호작용_수'].max()
+
+df_sample['참여도_스코어'] = (
+    ((df_sample['체류시간_초'] - min_t) / (max_t - min_t + 1e-9)) * 50 +
+    ((df_sample['상호작용_수'] - min_i) / (max_i - min_i + 1e-9)) * 50
+)
+
+# ---------------------------------------------------------
 # 1. 사용자 행동 몰림 현상 분석
 # ---------------------------------------------------------
 st.subheader("1. 📊 사용자 행동 몰림(체류) 분포 현황")
@@ -52,7 +62,7 @@ st.subheader("1. 📊 사용자 행동 몰림(체류) 분포 현황")
 col_a, col_b = st.columns(2)
 
 with col_a:
-    action_counts = df['사용자_동작'].value_counts().reset_index()
+    action_counts = df_sample['사용자_동작'].value_counts().reset_index()
     action_counts.columns = ['사용자_동작', '사용자_수']
     fig_action = px.bar(
         action_counts, x='사용자_동작', y='사용자_수',
@@ -63,7 +73,7 @@ with col_a:
 
 with col_b:
     select_cat = st.selectbox("분석할 범주 선택:", ["카테고리", "기기_유형", "유입_경로"])
-    cross_tab = pd.crosstab(df[select_cat], df['사용자_동작']).reset_index()
+    cross_tab = pd.crosstab(df_sample[select_cat], df_sample['사용자_동작']).reset_index()
     fig_cross = px.bar(
         cross_tab, x=select_cat, y=[c for c in cross_tab.columns if c != select_cat],
         title=f"[{select_cat}별 행동 몰림 분포]", barmode='stack'
@@ -73,11 +83,10 @@ with col_b:
 st.markdown("---")
 
 # ---------------------------------------------------------
-# 모델 학습 및 전처리
+# 군집화 모델 전처리 및 학습 (4개 모델)
 # ---------------------------------------------------------
-num_cols = ['체류시간_초', '세션_길이', '상호작용_수', '가격', '이벤트_인덱스']
+num_cols = ['체류시간_초', '세션_길이', '상호작용_수', '참여도_스코어']
 cat_cols = ['카테고리', '기기_유형', '유입_경로']
-target_col = '전환_여부'
 
 preprocessor = ColumnTransformer(
     transformers=[
@@ -87,50 +96,66 @@ preprocessor = ColumnTransformer(
 )
 
 X_processed = preprocessor.fit_transform(df_sample[num_cols + cat_cols])
-y_true = df_sample[target_col]
 
-def align_labels(y_true, y_pred):
-    return (1 - y_pred) if accuracy_score(y_true, 1 - y_pred) > accuracy_score(y_true, y_pred) else y_pred
-
-# 모델 학습
-log_reg = LogisticRegression(max_iter=500, random_state=42).fit(X_processed, y_true)
-labels_lr = log_reg.predict(X_processed)
-sil_lr = silhouette_score(X_processed, labels_lr) if len(set(labels_lr)) > 1 else 0.0
-
+# 1. 중심 기반: K-Means (k=2)
 kmeans = KMeans(n_clusters=2, random_state=42, n_init=5)
-labels_km = align_labels(y_true, kmeans.fit_predict(X_processed))
+labels_km = kmeans.fit_predict(X_processed)
 sil_km = silhouette_score(X_processed, labels_km)
+ch_km = calinski_harabasz_score(X_processed, labels_km)
+db_km = davies_bouldin_score(X_processed, labels_km)
 
+# 2. 밀도 기반: DBSCAN
 dbscan = DBSCAN(eps=2.0, min_samples=10)
-db_raw = dbscan.fit_predict(X_processed)
-labels_db = align_labels(y_true, np.where(db_raw == -1, 0, np.where(db_raw > 0, 1, 0)))
-sil_db = silhouette_score(X_processed, db_raw) if len(set(db_raw)) > 1 else 0.0
+labels_db = dbscan.fit_predict(X_processed)
+# 노이즈를 포함한 평가 방어
+valid_mask = labels_db != -1
+if len(set(labels_db[valid_mask])) > 1:
+    sil_db = silhouette_score(X_processed[valid_mask], labels_db[valid_mask])
+    ch_db = calinski_harabasz_score(X_processed[valid_mask], labels_db[valid_mask])
+    db_db = davies_bouldin_score(X_processed[valid_mask], labels_db[valid_mask])
+else:
+    sil_db, ch_db, db_db = 0.0, 0.0, 0.0
 
+# 3. 분포 기반: GMM (Gaussian Mixture Model, n=2)
 gmm = GaussianMixture(n_components=2, random_state=42)
-labels_gmm = align_labels(y_true, gmm.fit_predict(X_processed))
+labels_gmm = gmm.fit_predict(X_processed)
 sil_gmm = silhouette_score(X_processed, labels_gmm)
+ch_gmm = calinski_harabasz_score(X_processed, labels_gmm)
+db_gmm = davies_bouldin_score(X_processed, labels_gmm)
+
+# 4. 계층적 군집화: Agglomerative Clustering (n=2)
+agg = AgglomerativeClustering(n_clusters=2)
+labels_agg = agg.fit_predict(X_processed)
+sil_agg = silhouette_score(X_processed, labels_agg)
+ch_agg = calinski_harabasz_score(X_processed, labels_agg)
+db_agg = davies_bouldin_score(X_processed, labels_agg)
 
 # ---------------------------------------------------------
-# 2. 모델별 지표 비교 표
+# 2. 4가지 군집화 모델 성능 지표 비교 표
 # ---------------------------------------------------------
-st.subheader("2. 🤖 모델별 성능 지표 비교")
+st.subheader("2. 🤖 4가지 비지도 군집화 모델 성능 지표 비교")
+st.markdown("비지도 학습 평가 지표인 **실루엣 계수(Silhouette)**, **칼린스키-하바라슈(Calinski-Harabasz)**, **데이비스-불딘(Davies-Bouldin)**을 통해 군집 품질을 평가합니다.")
 
 models_summary = [
-    {"모델 유형": "지도학습", "대표 모델": "로지스틱 회귀", "정확도": accuracy_score(y_true, labels_lr), "정밀도": precision_score(y_true, labels_lr, zero_division=0), "재현율": recall_score(y_true, labels_lr, zero_division=0), "실루엣 계수": sil_lr},
-    {"모델 유형": "중심 기반", "대표 모델": "K-Means", "정확도": accuracy_score(y_true, labels_km), "정밀도": precision_score(y_true, labels_km, zero_division=0), "재현율": recall_score(y_true, labels_km, zero_division=0), "실루엣 계수": sil_km},
-    {"모델 유형": "밀도 기반", "대표 모델": "DBSCAN", "정확도": accuracy_score(y_true, labels_db), "정밀도": precision_score(y_true, labels_db, zero_division=0), "재현율": recall_score(y_true, labels_db, zero_division=0), "실루엣 계수": sil_db},
-    {"모델 유형": "분포 기반", "대표 모델": "GMM", "정확도": accuracy_score(y_true, labels_gmm), "정밀도": precision_score(y_true, labels_gmm, zero_division=0), "재현율": recall_score(y_true, labels_gmm, zero_division=0), "실루엣 계수": sil_gmm},
+    {"군집화 유형": "중심 기반", "대표 모델": "K-Means", "실루엣 계수": sil_km, "Calinski-Harabasz": ch_km, "Davies-Bouldin": db_km},
+    {"군집화 유형": "밀도 기반", "대표 모델": "DBSCAN", "실루엣 계수": sil_db, "Calinski-Harabasz": ch_db, "Davies-Bouldin": db_db},
+    {"군집화 유형": "분포 기반", "대표 모델": "GMM", "실루엣 계수": sil_gmm, "Calinski-Harabasz": ch_gmm, "Davies-Bouldin": db_gmm},
+    {"군집화 유형": "계층 기반", "대표 모델": "Agglomerative", "실루엣 계수": sil_agg, "Calinski-Harabasz": ch_agg, "Davies-Bouldin": db_agg},
 ]
 
-st.table(pd.DataFrame(models_summary).style.format({"정확도": "{:.4f}", "정밀도": "{:.4f}", "재현율": "{:.4f}", "실루엣 계수": "{:.4f}"}))
+st.table(pd.DataFrame(models_summary).style.format({
+    "실루엣 계수": "{:.4f}",
+    "Calinski-Harabasz": "{:.2f}",
+    "Davies-Bouldin": "{:.4f}"
+}))
 
 # ---------------------------------------------------------
 # 3. 내가 고른 모델과 그 이유
 # ---------------------------------------------------------
 st.markdown("### 💡 내가 고른 모델과 그 이유")
 st.info("""
-**🏆 최종 선택 모델: 로지스틱 회귀 (Logistic Regression)**
-* **선택 이유:** 기기 유형이나 카테고리 같은 범주형 속성이 사용자의 행동 체류 및 전환에 미치는 영향력을 직관적으로 수치화하여 보여주며, 가장 안정적인 분류 정확도를 제공하기 때문입니다.
+**🏆 최종 선택 모델: 중심 기반 군집화 (K-Means)**
+* **선택 이유:** 참여도 스코어와 체류 시간 기반의 고객 행동 데이터를 가장 직관적이고 균형 있게 두 개의 그룹(고참여 몰입 그룹 vs 저참여 이탈 그룹)으로 나누어 주며, 실루엣 점수와 군집 응집도가 안정적이기 때문입니다.
 """)
 
 st.markdown("---")
@@ -142,56 +167,55 @@ st.subheader("3. 📈 모델별 산점도(Scatter Plot) 및 사용자 동작 교
 
 tab_scatter, tab_heatmap = st.tabs(["산점도 시각화", "사용자 동작 교차 히트맵"])
 
+df_sample['KM'] = labels_km.astype(str)
+df_sample['DB'] = labels_db.astype(str)
+df_sample['GMM'] = labels_gmm.astype(str)
+df_sample['AGG'] = labels_agg.astype(str)
+
 # 1) 산점도 탭
 with tab_scatter:
-    st.markdown("#### 모델별 예측 및 군집 구조 산점도")
+    st.markdown("#### 군집 모델별 참여도 vs 상호작용 산점도")
     selected_model_plot = st.selectbox(
         "산점도로 확인할 모델을 선택하세요:", 
-        ["로지스틱 회귀", "중심 기반 (K-Means)", "밀도 기반 (DBSCAN)", "분포 기반 (GMM)"],
+        ["중심 기반 (K-Means)", "밀도 기반 (DBSCAN)", "분포 기반 (GMM)", "계층 기반 (Agglomerative)"],
         key="scatter_select"
     )
     
-    df_sample['LR'] = labels_lr.astype(str)
-    df_sample['KM'] = labels_km.astype(str)
-    df_sample['DB'] = db_raw.astype(str)
-    df_sample['GMM'] = labels_gmm.astype(str)
-    
-    if selected_model_plot == "로지스틱 회귀":
-        fig_scat = px.scatter(df_sample, x='상호작용_수', y='체류시간_초', color='LR', symbol='기기_유형', title="로지스틱 회귀 예측 결과 산점도")
-    elif selected_model_plot == "중심 기반 (K-Means)":
-        fig_scat = px.scatter(df_sample, x='상호작용_수', y='체류시간_초', color='KM', symbol='기기_유형', title=f"K-Means 군집 산점도 (실루엣: {sil_km:.4f})")
+    if selected_model_plot == "중심 기반 (K-Means)":
+        fig_scat = px.scatter(df_sample, x='상호작용_수', y='참여도_스코어', color='KM', symbol='기기_유형', title=f"K-Means 군집 산점도 (실루엣: {sil_km:.4f})")
     elif selected_model_plot == "밀도 기반 (DBSCAN)":
-        fig_scat = px.scatter(df_sample, x='상호작용_수', y='체류시간_초', color='DB', title=f"DBSCAN 군집 산점도 (실루엣: {sil_db:.4f})")
+        fig_scat = px.scatter(df_sample, x='상호작용_수', y='참여도_스코어', color='DB', title=f"DBSCAN 군집 산점도 (실루엣: {sil_db:.4f})")
+    elif selected_model_plot == "분포 기반 (GMM)":
+        fig_scat = px.scatter(df_sample, x='상호작용_수', y='참여도_스코어', color='GMM', symbol='기기_유형', title=f"GMM 군집 산점도 (실루엣: {sil_gmm:.4f})")
     else:
-        fig_scat = px.scatter(df_sample, x='상호작용_수', y='체류시간_초', color='GMM', symbol='기기_유형', title=f"GMM 군집 산점도 (실루엣: {sil_gmm:.4f})")
+        fig_scat = px.scatter(df_sample, x='상호작용_수', y='참여도_스코어', color='AGG', symbol='기기_유형', title=f"Agglomerative 군집 산점도 (실루엣: {sil_agg:.4f})")
         
     st.plotly_chart(fig_scat, use_container_width=True)
 
 # 2) 교차 히트맵 탭
 with tab_heatmap:
-    st.markdown("#### 모델 예측 그룹 × 사용자 동작 교차 히트맵")
+    st.markdown("#### 군집 모델별 그룹 × 사용자 동작 교차 히트맵")
     selected_model_heat = st.selectbox(
         "교차 히트맵으로 확인할 모델을 선택하세요:", 
-        ["로지스틱 회귀", "중심 기반 (K-Means)", "분포 기반 (GMM)"],
+        ["중심 기반 (K-Means)", "분포 기반 (GMM)", "계층 기반 (Agglomerative)"],
         key="heatmap_select"
     )
     
     map_col_dict = {
-        "로지스틱 회귀": 'LR',
         "중심 기반 (K-Means)": 'KM',
-        "분포 기반 (GMM)": 'GMM'
+        "분포 기반 (GMM)": 'GMM',
+        "계층 기반 (Agglomerative)": 'AGG'
     }
     target_cluster_col = map_col_dict[selected_model_heat]
     
-    # 모델 예측 그룹과 사용자 동작 간의 교차 빈도수 테이블 생성
     heatmap_data = pd.crosstab(df_sample[target_cluster_col], df_sample['사용자_동작'])
     
     fig_heat = px.imshow(
         heatmap_data,
         text_auto=True,
         color_continuous_scale="Blues",
-        title=f"[{selected_model_heat}] 모델 예측 그룹별 사용자 동작 몰림 현상 (빈도수)",
-        labels=dict(x="사용자 동작 (User Action)", y="예측 그룹 (Cluster / Class)", color="세션 수")
+        title=f"[{selected_model_heat}] 군집 그룹별 사용자 동작 몰림 현상 (빈도수)",
+        labels=dict(x="사용자 동작 (User Action)", y="군집 그룹 (Cluster)", color="세션 수")
     )
     st.plotly_chart(fig_heat, use_container_width=True)
-    st.info("💡 **교차 히트맵 설명:** 각 모델이 분류한 그룹(0 또는 1) 안에서 유저들이 **구체적으로 어떤 `사용자_동작` (조회, 장바구니, 구매 등)에 가장 많이 몰려있는지** 빈도수를 색상 농도로 명확하게 비교할 수 있습니다.")
+    st.info("💡 **교차 히트맵 설명:** 각 군집 그룹 안에서 유저들이 **어떤 `사용자_동작`(조회, 장바구니, 클릭 등)에 가장 많이 몰려있는지** 빈도수를 색상 농도로 명확하게 파악할 수 있어 연구 목적에 완벽히 부합합니다.")
