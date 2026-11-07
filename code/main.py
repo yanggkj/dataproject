@@ -5,7 +5,7 @@ import plotly.express as px
 
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
-from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
+from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.mixture import GaussianMixture
 from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 
@@ -18,8 +18,8 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🎯 고객 참여도(Engagement) 기반 4가지 군집화 모델 분석")
-st.markdown("체류 시간과 상호작용 수를 결합한 **'참여도 스코어'**를 산출하고, 4가지 비지도 군집화 모델을 통해 **사용자들이 어느 행동 단계와 참여도 구간에 가장 많이 몰려있는지** 분석합니다.")
+st.title("🎯 고객 참여도(Engagement) 기반 3가지 군집화 모델 분석")
+st.markdown("체류 시간과 상호작용 수를 결합한 **'참여도 스코어'**를 산출하고, **중심·분포·계층 기반**의 3가지 군집화 모델로 사용자의 행동 몰림 현상을 분석합니다.")
 st.markdown("---")
 
 # ---------------------------------------------------------
@@ -44,7 +44,7 @@ sample_size = min(3000, len(df))
 df_sample = df.sample(n=sample_size, random_state=42).copy().reset_index(drop=True)
 
 # ---------------------------------------------------------
-# 4번 방식: 참여도 스코어(Engagement Score) 산출
+# 참여도 스코어(Engagement Score) 산출
 # ---------------------------------------------------------
 min_t, max_t = df_sample['체류시간_초'].min(), df_sample['체류시간_초'].max()
 min_i, max_i = df_sample['상호작용_수'].min(), df_sample['상호작용_수'].max()
@@ -83,7 +83,7 @@ with col_b:
 st.markdown("---")
 
 # ---------------------------------------------------------
-# 군집화 모델 전처리 및 학습 (4개 모델)
+# 군집화 모델 전처리 및 학습 (3개 모델)
 # ---------------------------------------------------------
 num_cols = ['체류시간_초', '세션_길이', '상호작용_수', '참여도_스코어']
 cat_cols = ['카테고리', '기기_유형', '유입_경로']
@@ -104,26 +104,14 @@ sil_km = silhouette_score(X_processed, labels_km)
 ch_km = calinski_harabasz_score(X_processed, labels_km)
 db_km = davies_bouldin_score(X_processed, labels_km)
 
-# 2. 밀도 기반: DBSCAN
-dbscan = DBSCAN(eps=2.0, min_samples=10)
-labels_db = dbscan.fit_predict(X_processed)
-# 노이즈를 포함한 평가 방어
-valid_mask = labels_db != -1
-if len(set(labels_db[valid_mask])) > 1:
-    sil_db = silhouette_score(X_processed[valid_mask], labels_db[valid_mask])
-    ch_db = calinski_harabasz_score(X_processed[valid_mask], labels_db[valid_mask])
-    db_db = davies_bouldin_score(X_processed[valid_mask], labels_db[valid_mask])
-else:
-    sil_db, ch_db, db_db = 0.0, 0.0, 0.0
-
-# 3. 분포 기반: GMM (Gaussian Mixture Model, n=2)
+# 2. 분포 기반: GMM (Gaussian Mixture Model, n=2)
 gmm = GaussianMixture(n_components=2, random_state=42)
 labels_gmm = gmm.fit_predict(X_processed)
 sil_gmm = silhouette_score(X_processed, labels_gmm)
 ch_gmm = calinski_harabasz_score(X_processed, labels_gmm)
 db_gmm = davies_bouldin_score(X_processed, labels_gmm)
 
-# 4. 계층적 군집화: Agglomerative Clustering (n=2)
+# 3. 계층 기반: Agglomerative Clustering (n=2)
 agg = AgglomerativeClustering(n_clusters=2)
 labels_agg = agg.fit_predict(X_processed)
 sil_agg = silhouette_score(X_processed, labels_agg)
@@ -131,14 +119,13 @@ ch_agg = calinski_harabasz_score(X_processed, labels_agg)
 db_agg = davies_bouldin_score(X_processed, labels_agg)
 
 # ---------------------------------------------------------
-# 2. 4가지 군집화 모델 성능 지표 비교 표
+# 2. 3가지 군집화 모델 성능 지표 비교 표
 # ---------------------------------------------------------
-st.subheader("2. 🤖 4가지 비지도 군집화 모델 성능 지표 비교")
+st.subheader("2. 🤖 3가지 비지도 군집화 모델 성능 지표 비교")
 st.markdown("비지도 학습 평가 지표인 **실루엣 계수(Silhouette)**, **칼린스키-하바라슈(Calinski-Harabasz)**, **데이비스-불딘(Davies-Bouldin)**을 통해 군집 품질을 평가합니다.")
 
 models_summary = [
     {"군집화 유형": "중심 기반", "대표 모델": "K-Means", "실루엣 계수": sil_km, "Calinski-Harabasz": ch_km, "Davies-Bouldin": db_km},
-    {"군집화 유형": "밀도 기반", "대표 모델": "DBSCAN", "실루엣 계수": sil_db, "Calinski-Harabasz": ch_db, "Davies-Bouldin": db_db},
     {"군집화 유형": "분포 기반", "대표 모델": "GMM", "실루엣 계수": sil_gmm, "Calinski-Harabasz": ch_gmm, "Davies-Bouldin": db_gmm},
     {"군집화 유형": "계층 기반", "대표 모델": "Agglomerative", "실루엣 계수": sil_agg, "Calinski-Harabasz": ch_agg, "Davies-Bouldin": db_agg},
 ]
@@ -168,7 +155,6 @@ st.subheader("3. 📈 모델별 산점도(Scatter Plot) 및 사용자 동작 교
 tab_scatter, tab_heatmap = st.tabs(["산점도 시각화", "사용자 동작 교차 히트맵"])
 
 df_sample['KM'] = labels_km.astype(str)
-df_sample['DB'] = labels_db.astype(str)
 df_sample['GMM'] = labels_gmm.astype(str)
 df_sample['AGG'] = labels_agg.astype(str)
 
@@ -177,14 +163,12 @@ with tab_scatter:
     st.markdown("#### 군집 모델별 참여도 vs 상호작용 산점도")
     selected_model_plot = st.selectbox(
         "산점도로 확인할 모델을 선택하세요:", 
-        ["중심 기반 (K-Means)", "밀도 기반 (DBSCAN)", "분포 기반 (GMM)", "계층 기반 (Agglomerative)"],
+        ["중심 기반 (K-Means)", "분포 기반 (GMM)", "계층 기반 (Agglomerative)"],
         key="scatter_select"
     )
     
     if selected_model_plot == "중심 기반 (K-Means)":
         fig_scat = px.scatter(df_sample, x='상호작용_수', y='참여도_스코어', color='KM', symbol='기기_유형', title=f"K-Means 군집 산점도 (실루엣: {sil_km:.4f})")
-    elif selected_model_plot == "밀도 기반 (DBSCAN)":
-        fig_scat = px.scatter(df_sample, x='상호작용_수', y='참여도_스코어', color='DB', title=f"DBSCAN 군집 산점도 (실루엣: {sil_db:.4f})")
     elif selected_model_plot == "분포 기반 (GMM)":
         fig_scat = px.scatter(df_sample, x='상호작용_수', y='참여도_스코어', color='GMM', symbol='기기_유형', title=f"GMM 군집 산점도 (실루엣: {sil_gmm:.4f})")
     else:
