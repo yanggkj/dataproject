@@ -19,34 +19,31 @@ st.set_page_config(
 )
 
 st.title("🎯 모델별 최적 군집 개수 탐색 및 평가 대시보드")
-st.markdown("K-Means(이너시아), GMM(BIC), 계층 기반(실루엣) 모델별 최적화 곡선과 정확한 수치를 비교합니다.")
+st.markdown("원래 데이터 파일을 기반으로 3가지 비지도 군집화 모델의 최적화 곡선과 정확한 수치를 비교합니다.")
 st.markdown("---")
 
 # ---------------------------------------------------------
-# 데이터 로드 (캐싱 적용)
+# 데이터 로드 (원래 파일명 기준)
 # ---------------------------------------------------------
 @st.cache_data
 def load_data():
-    for path in ['data/processed_retail_user_behavior_filtered.xlsx', 'processed_retail_user_behavior_filtered.xlsx', 'processed_retail_user_behavior_korean.csv']:
-        try:
-            if path.endswith('.xlsx'):
-                return pd.read_excel(path)
-            else:
-                return pd.read_csv(path)
-        except FileNotFoundError:
-            continue
-    return None
+    try:
+        return pd.read_csv('processed_retail_user_behavior_korean.csv')
+    except FileNotFoundError:
+        return None
 
 df = load_data()
 if df is None:
-    st.error("❌ 데이터 파일을 찾을 수 없습니다.")
+    st.error("❌ `processed_retail_user_behavior_korean.csv` 파일을 찾을 수 없습니다. 파일을 확인해주세요.")
     st.stop()
 
-# 샘플링 (3,000건)
+# 서버 메모리 보호를 위한 샘플링 (3,000건)
 sample_size = min(3000, len(df))
 df_sample = df.sample(n=sample_size, random_state=42).copy().reset_index(drop=True)
 
-# 참여도 스코어 산출 (없는 경우 대비 안전장치)
+# ---------------------------------------------------------
+# 참여도 스코어(Engagement Score) 산출
+# ---------------------------------------------------------
 if '참여도_스코어' not in df_sample.columns:
     min_t, max_t = df_sample['체류시간_초'].min(), df_sample['체류시간_초'].max()
     min_i, max_i = df_sample['상호작용_수'].min(), df_sample['상호작용_수'].max()
@@ -124,7 +121,7 @@ st.table(pd.DataFrame(models_summary).style.format({
 }))
 
 # ---------------------------------------------------------
-# 3. 모든 모델별 최적 군집 개수 탐색 곡선 및 정확한 수치
+# 3. 모델별 최적 군집 개수 탐색 곡선 및 정확한 수치
 # ---------------------------------------------------------
 st.subheader("3. 📉 모델별 최적 군집 개수 탐색 곡선 및 상세 수치 ($K=2 \\sim 8$)")
 
@@ -148,7 +145,6 @@ eval_df = pd.DataFrame({
     "Agglomerative (실루엣)": sil_list
 })
 
-# 정확한 수치 테이블 출력
 st.markdown("#### 📋 군집 개수별 평가 지표 상세 수치")
 st.dataframe(eval_df.style.format({
     "K-Means (Inertia)": "{:,.2f}",
@@ -156,7 +152,6 @@ st.dataframe(eval_df.style.format({
     "Agglomerative (실루엣)": "{:.4f}"
 }), use_container_width=True)
 
-# 시각화 탭 분리
 tab_el, tab_bic, tab_sil = st.tabs(["K-Means 엘보우 곡선", "GMM BIC 곡선", "계층 기반 실루엣 곡선"])
 
 with tab_el:
