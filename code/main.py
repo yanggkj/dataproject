@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import os
 
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
@@ -19,22 +20,32 @@ st.set_page_config(
 )
 
 st.title("🎯 모델별 최적 군집 개수 탐색 및 평가 대시보드")
-st.markdown("원래 데이터 파일을 기반으로 3가지 비지도 군집화 모델의 최적화 곡선과 정확한 수치를 비교합니다.")
+st.markdown("3가지 비지도 군집화 모델의 최적화 곡선, 상세 수치, 그리고 사용자 동작 교차 히트맵을 비교합니다.")
 st.markdown("---")
 
 # ---------------------------------------------------------
-# 데이터 로드 (원래 파일명 기준)
+# 데이터 로드 (절대/상대 경로 자동 탐색)
 # ---------------------------------------------------------
 @st.cache_data
 def load_data():
-    try:
-        return pd.read_csv('processed_retail_user_behavior_korean.csv')
-    except FileNotFoundError:
-        return None
+    # 현재 스크립트가 있는 디렉토리 및 상대 경로들 탐색
+    possible_paths = [
+        'processed_retail_user_behavior_korean.csv',
+        './processed_retail_user_behavior_korean.csv',
+        os.path.join(os.path.dirname(__file__), 'processed_retail_user_behavior_korean.csv') if '__file__' else ''
+    ]
+    
+    for path in possible_paths:
+        if path and os.path.exists(path):
+            try:
+                return pd.read_csv(path)
+            except Exception:
+                continue
+    return None
 
 df = load_data()
 if df is None:
-    st.error("❌ `processed_retail_user_behavior_korean.csv` 파일을 찾을 수 없습니다. 파일을 확인해주세요.")
+    st.error("❌ `processed_retail_user_behavior_korean.csv` 파일을 찾을 수 없습니다. 대시보드 실행 폴더에 데이터 파일이 있는지 확인해주세요.")
     st.stop()
 
 # 서버 메모리 보호를 위한 샘플링 (3,000건)
