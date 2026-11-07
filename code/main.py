@@ -2,26 +2,25 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, DBSCAN
+from sklearn.mixture import GaussianMixture
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, precision_score, recall_score, silhouette_score
 
 # ---------------------------------------------------------
 # 페이지 설정
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="차원 축소 및 프로파일 히트맵 분석 대시보드",
-    page_icon="📊",
+    page_title="리테일 고객 행동 분석 대시보드",
+    page_icon="🎯",
     layout="wide"
 )
 
-st.title("📊 차원 축소(PCA/t-SNE) 및 프로파일 히트맵 분석 대시보드")
-st.markdown("수치형 및 범주형 속성을 결합하여 고차원 데이터를 2차원으로 축소하고, 사용자 행동별 특성을 프로파일 히트맵으로 시각화합니다.")
+st.title("🎯 사용자 행동 몰림 현상 & 모델별 산점도 및 프로파일 히트맵 분석")
+st.markdown("로지스틱 회귀 및 3가지 군집화 모델을 활용하여 사용자 행동 체류 현황을 파악하고, **산점도**와 **프로파일 히트맵**으로 모델별 특성을 비교합니다.")
 st.markdown("---")
 
 # ---------------------------------------------------------
@@ -41,14 +40,44 @@ if df is None:
     st.error("❌ 데이터 파일을 찾을 수 없습니다 (`processed_retail_user_behavior_korean.csv`).")
     st.stop()
 
-# 서버 메모리 보호 및 속도를 위한 가벼운 샘플링 (2,000건)
-df_sample = df.sample(n=min(2000, len(df)), random_state=42).copy().reset_index(drop=True)
+# 서버 메모리 보호를 위한 가벼운 샘플링 (3,000건)
+sample_size = min(3000, len(df))
+df_sample = df.sample(n=sample_size, random_state=42).copy().reset_index(drop=True)
 
 # ---------------------------------------------------------
-# 전처리 및 차원 축소 (PCA & t-SNE) 수행
+# 1. 사용자 행동 몰림 현상 분석
+# ---------------------------------------------------------
+st.subheader("1. 📊 사용자 행동 몰림(체류) 분포 현황")
+
+col_a, col_b = st.columns(2)
+
+with col_a:
+    action_counts = df['사용자_동작'].value_counts().reset_index()
+    action_counts.columns = ['사용자_동작', '사용자_수']
+    fig_action = px.bar(
+        action_counts, x='사용자_동작', y='사용자_수',
+        title="[행동별 몰림 현황] 가장 많이 체류 중인 행동 단계",
+        color='사용자_수', color_continuous_scale='Blues', text_auto=True
+    )
+    st.plotly_chart(fig_action, use_container_width=True)
+
+with col_b:
+    select_cat = st.selectbox("분석할 범주 선택:", ["카테고리", "기기_유형", "유입_경로"])
+    cross_tab = pd.crosstab(df[select_cat], df['사용자_동작']).reset_index()
+    fig_cross = px.bar(
+        cross_tab, x=select_cat, y=[c for c in cross_tab.columns if c != select_cat],
+        title=f"[{select_cat}별 행동 몰림 분포]", barmode='stack'
+    )
+    st.plotly_chart(fig_cross, use_container_width=True)
+
+st.markdown("---")
+
+# ---------------------------------------------------------
+# 모델 학습 및 전처리
 # ---------------------------------------------------------
 num_cols = ['체류시간_초', '세션_길이', '상호작용_수', '가격', '이벤트_인덱스']
-cat_cols = ['카테고리', '기기_유형', '유입_경로', '사용자_동작']
+cat_cols = ['카테고리', '기기_유형', '유입_경로']
+target_col = '전환_여부'
 
 preprocessor = ColumnTransformer(
     transformers=[
@@ -58,92 +87,112 @@ preprocessor = ColumnTransformer(
 )
 
 X_processed = preprocessor.fit_transform(df_sample[num_cols + cat_cols])
+y_true = df_sample[target_col]
 
-# 1. PCA (주성분 분석)
-pca = PCA(n_components=2, random_state=42)
-X_pca = pca.fit_transform(X_processed)
-df_sample['PCA1'] = X_pca[:, 0]
-df_sample['PCA2'] = X_pca[:, 1]
+def align_labels(y_true, y_pred):
+    return (1 - y_pred) if accuracy_score(y_true, 1 - y_pred) > accuracy_score(y_true, y_pred) else y_pred
 
-# 2. t-SNE (비선형 차원 축소)
-tsne = TSNE(n_components=2, perplexity=30, random_state=42, n_iter=300)
-X_tsne = tsne.fit_transform(X_processed)
-df_sample['t-SNE1'] = X_tsne[:, 0]
-df_sample['t-SNE2'] = X_tsne[:, 1]
+# 모델 학습
+log_reg = LogisticRegression(max_iter=500, random_state=42).fit(X_processed, y_true)
+labels_lr = log_reg.predict(X_processed)
+sil_lr = silhouette_score(X_processed, labels_lr) if len(set(labels_lr)) > 1 else 0.0
 
-# 3. K-Means 군집 라벨 생성 (시각화 색상 구분용)
-kmeans = KMeans(n_clusters=3, random_state=42, n_init=5)
-df_sample['군집'] = kmeans.fit_predict(X_processed).astype(str)
+kmeans = KMeans(n_clusters=2, random_state=42, n_init=5)
+labels_km = align_labels(y_true, kmeans.fit_predict(X_processed))
+sil_km = silhouette_score(X_processed, labels_km)
+
+dbscan = DBSCAN(eps=2.0, min_samples=10)
+db_raw = dbscan.fit_predict(X_processed)
+labels_db = align_labels(y_true, np.where(db_raw == -1, 0, np.where(db_raw > 0, 1, 0)))
+sil_db = silhouette_score(X_processed, db_raw) if len(set(db_raw)) > 1 else 0.0
+
+gmm = GaussianMixture(n_components=2, random_state=42)
+labels_gmm = align_labels(y_true, gmm.fit_predict(X_processed))
+sil_gmm = silhouette_score(X_processed, labels_gmm)
 
 # ---------------------------------------------------------
-# 1. 차원 축소 시각화 탭 (PCA / t-SNE / 산점도)
+# 2. 모델별 지표 비교 표
 # ---------------------------------------------------------
-st.subheader("1. 🌐 차원 축소 및 군집 산점도 (PCA & t-SNE)")
+st.subheader("2. 🤖 모델별 성능 지표 비교")
 
-tab_pca, tab_tsne, tab_scatter = st.tabs([
-    "PCA (주성분 분석)", 
-    "t-SNE (비선형 매니폴드)", 
-    "기본 산점도 (체류시간 vs 상호작용)"
-])
+models_summary = [
+    {"모델 유형": "지도학습", "대표 모델": "로지스틱 회귀", "정확도": accuracy_score(y_true, labels_lr), "정밀도": precision_score(y_true, labels_lr, zero_division=0), "재현율": recall_score(y_true, labels_lr, zero_division=0), "실루엣 계수": sil_lr},
+    {"모델 유형": "중심 기반", "대표 모델": "K-Means", "정확도": accuracy_score(y_true, labels_km), "정밀도": precision_score(y_true, labels_km, zero_division=0), "재현율": recall_score(y_true, labels_km, zero_division=0), "실루엣 계수": sil_km},
+    {"모델 유형": "밀도 기반", "대표 모델": "DBSCAN", "정확도": accuracy_score(y_true, labels_db), "정밀도": precision_score(y_true, labels_db, zero_division=0), "재현율": recall_score(y_true, labels_db, zero_division=0), "실루엣 계수": sil_db},
+    {"모델 유형": "분포 기반", "대표 모델": "GMM", "정확도": accuracy_score(y_true, labels_gmm), "정밀도": precision_score(y_true, labels_gmm, zero_division=0), "재현율": recall_score(y_true, labels_gmm, zero_division=0), "실루엣 계수": sil_gmm},
+]
 
-with tab_pca:
-    st.markdown("#### PCA 2차원 투영 시각화")
-    fig_pca = px.scatter(
-        df_sample, x='PCA1', y='PCA2', color='군집', symbol='기기_유형',
-        title="PCA 차원 축소 결과 (고차원 속성을 2개 주성분으로 압축)",
-        opacity=0.8
-    )
-    st.plotly_chart(fig_pca, use_container_width=True)
-    st.info("💡 **PCA 설명:** 데이터의 분산을 최대한 보존하면서 여러 변수들을 직교하는 2개의 주성분(PCA1, PCA2)으로 압축하여 전체적인 군집 분포를 보여줍니다.")
+st.table(pd.DataFrame(models_summary).style.format({"정확도": "{:.4f}", "정밀도": "{:.4f}", "재현율": "{:.4f}", "실루엣 계수": "{:.4f}"}))
 
-with tab_tsne:
-    st.markdown("#### t-SNE 2차원 군집화 시각화")
-    fig_tsne = px.scatter(
-        df_sample, x='t-SNE1', y='t-SNE2', color='군집', symbol='기기_유형',
-        title="t-SNE 차원 축소 결과 (비선형 군집 구조 시각화)",
-        opacity=0.8
-    )
-    st.plotly_chart(fig_tsne, use_container_width=True)
-    st.info("💡 **t-SNE 설명:** 고차원 공간에서의 데이터 간 거리를 보존하며 2차원에 비선형적으로 배치하여, 밀집된 사용자 그룹과 이탈 패턴을 뚜렷하게 군집화합니다.")
+# ---------------------------------------------------------
+# 3. 내가 고른 모델과 그 이유
+# ---------------------------------------------------------
+st.markdown("### 💡 내가 고른 모델과 그 이유")
+st.info("""
+**🏆 최종 선택 모델: 로지스틱 회귀 (Logistic Regression)**
+* **선택 이유:** 기기 유형이나 카테고리 같은 범주형 속성이 사용자의 행동 체류 및 전환에 미치는 영향력을 직관적으로 수치화하여 보여주며, 가장 안정적인 분류 정확도를 제공하기 때문입니다.
+""")
 
+st.markdown("---")
+
+# ---------------------------------------------------------
+# 4. 시각화 영역: 산점도 및 프로파일 히트맵
+# ---------------------------------------------------------
+st.subheader("3. 📈 모델별 산점도(Scatter Plot) 및 프로파일 히트맵(Profile Heatmap)")
+
+tab_scatter, tab_heatmap = st.tabs(["산점도 시각화", "프로파일 히트맵 분석"])
+
+# 1) 산점도 탭
 with tab_scatter:
-    st.markdown("#### 기본 사용자 행동 산점도")
-    fig_sc = px.scatter(
-        df_sample, x='상호작용_수', y='체류시간_초', color='사용자_동작', symbol='기기_유형',
-        title="체류시간 vs 상호작용 수 산점도 (사용자 동작별 분포)",
-        opacity=0.8
+    st.markdown("#### 모델별 예측 및 군집 구조 산점도")
+    selected_model_plot = st.selectbox(
+        "산점도로 확인할 모델을 선택하세요:", 
+        ["로지스틱 회귀", "중심 기반 (K-Means)", "밀도 기반 (DBSCAN)", "분포 기반 (GMM)"]
     )
-    st.plotly_chart(fig_sc, use_container_width=True)
-
-st.markdown("---")
-
-# ---------------------------------------------------------
-# 2. 프로파일 히트맵 (Profile Heatmap)
-# ---------------------------------------------------------
-st.subheader("2. 🔥 프로파일 히트맵 (Profile Heatmap)")
-st.markdown("사용자 동작별, 카테고리별 주요 수치 지표의 평균값 비교를 통해 그룹 특성을 파악합니다.")
-
-col_h1, col_h2 = st.columns(2)
-
-with col_h1:
-    st.markdown("#### [동작별] 수치형 평균 프로파일 히트맵")
-    # 사용자 동작별 수치형 변수 평균 계산
-    profile_action = df.groupby('사용자_동작')[num_cols].mean()
     
-    fig, ax = plt.subplots(figsize=(8, 5))
-    sns.heatmap(profile_action, annot=True, fmt=".1f", cmap="Blues", cbar=True, ax=ax)
-    ax.set_title("사용자 동작에 따른 수치형 지표 평균")
-    st.pyplot(fig)
-
-with col_h2:
-    st.markdown("#### [기기 유형별] 주요 행동 지표 프로파일 히트맵")
-    # 기기 유형별 수치형 변수 평균 계산
-    profile_device = df.groupby('기기_유형')[num_cols].mean()
+    df_sample['LR'] = labels_lr.astype(str)
+    df_sample['KM'] = labels_km.astype(str)
+    df_sample['DB'] = db_raw.astype(str)
+    df_sample['GMM'] = labels_gmm.astype(str)
     
-    fig2, ax2 = plt.subplots(figsize=(8, 5))
-    sns.heatmap(profile_device, annot=True, fmt=".1f", cmap="Oranges", cbar=True, ax=ax2)
-    ax2.set_title("기기 유형에 따른 수치형 지표 평균")
-    st.pyplot(fig2)
+    if selected_model_plot == "로지스틱 회귀":
+        fig_scat = px.scatter(df_sample, x='상호작용_수', y='체류시간_초', color='LR', symbol='기기_유형', title="로지스틱 회귀 예측 결과 산점도")
+    elif selected_model_plot == "중심 기반 (K-Means)":
+        fig_scat = px.scatter(df_sample, x='상호작용_수', y='체류시간_초', color='KM', symbol='기기_유형', title=f"K-Means 군집 산점도 (실루엣: {sil_km:.4f})")
+    elif selected_model_plot == "밀도 기반 (DBSCAN)":
+        fig_scat = px.scatter(df_sample, x='상호작용_수', y='체류시간_초', color='DB', title=f"DBSCAN 군집 산점도 (실루엣: {sil_db:.4f})")
+    else:
+        fig_scat = px.scatter(df_sample, x='상호작용_수', y='체류시간_초', color='GMM', symbol='기기_유형', title=f"GMM 군집 산점도 (실루엣: {sil_gmm:.4f})")
+        
+    st.plotly_chart(fig_scat, use_container_width=True)
 
-st.markdown("---")
-st.success("✅ PCA, t-SNE 산점도와 Seaborn 기반의 프로파일 히트맵 시각화가 성공적으로 적용되었습니다.")
+# 2) 프로파일 히트맵 탭
+with tab_heatmap:
+    st.markdown("#### 군집/분류 그룹별 수치형 특성 평균 프로파일 히트맵")
+    selected_model_heat = st.selectbox(
+        "히트맵으로 프로파일을 확인할 모델을 선택하세요:", 
+        ["로지스틱 회귀", "중심 기반 (K-Means)", "분포 기반 (GMM)"]
+    )
+    
+    map_col_dict = {
+        "로지스틱 회귀": 'LR',
+        "중심 기반 (K-Means)": 'KM',
+        "분포 기반 (GMM)": 'GMM'
+    }
+    target_cluster_col = map_col_dict[selected_model_heat]
+    
+    # 그룹별 수치형 평균 계산
+    profile_df = df_sample.groupby(target_cluster_col)[num_cols].mean().reset_index()
+    profile_melted = profile_df.melt(id_vars=target_cluster_col, value_vars=num_cols, var_name='특성', value_name='평균값')
+    
+    fig_heat = px.density_heatmap(
+        profile_melted,
+        x='특성',
+        y=target_cluster_col,
+        z='평균값',
+        histfunc='avg',
+        color_continuous_scale='Viridis',
+        title=f"[{selected_model_heat}] 그룹별 행동 특성 프로파일 히트맵"
+    )
+    st.plotly_chart(fig_heat, use_container_width=True)
+    st.info("💡 **프로파일 히트맵 설명:** 각 모델이 분류한 그룹(0 또는 1)별로 체류시간, 상호작용 수, 가격 등의 평균적인 특성 차이를 색상 농도로 비교하여 보여줍니다.")
