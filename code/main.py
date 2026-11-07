@@ -19,8 +19,8 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🎯 사용자 행동 몰림 현상 & 모델별 산점도 및 프로파일 히트맵 분석")
-st.markdown("로지스틱 회귀 및 3가지 군집화 모델을 활용하여 사용자 행동 체류 현황을 파악하고, **산점도**와 **프로파일 히트맵**으로 모델별 특성을 비교합니다.")
+st.title("🎯 사용자 행동 몰림 현상 & 교차 히트맵 분석 대시보드")
+st.markdown("로지스틱 회귀 및 3가지 군집화 모델을 활용하여 사용자 행동 체류 현황을 파악하고, **산점도**와 **동작별 교차 히트맵**으로 모델별 특성을 비교합니다.")
 st.markdown("---")
 
 # ---------------------------------------------------------
@@ -136,18 +136,19 @@ st.info("""
 st.markdown("---")
 
 # ---------------------------------------------------------
-# 4. 시각화 영역: 산점도 및 프로파일 히트맵
+# 4. 시각화 영역: 산점도 및 교차 히트맵
 # ---------------------------------------------------------
-st.subheader("3. 📈 모델별 산점도(Scatter Plot) 및 프로파일 히트맵(Profile Heatmap)")
+st.subheader("3. 📈 모델별 산점도(Scatter Plot) 및 사용자 동작 교차 히트맵(Cross Heatmap)")
 
-tab_scatter, tab_heatmap = st.tabs(["산점도 시각화", "프로파일 히트맵 분석"])
+tab_scatter, tab_heatmap = st.tabs(["산점도 시각화", "사용자 동작 교차 히트맵"])
 
 # 1) 산점도 탭
 with tab_scatter:
     st.markdown("#### 모델별 예측 및 군집 구조 산점도")
     selected_model_plot = st.selectbox(
         "산점도로 확인할 모델을 선택하세요:", 
-        ["로지스틱 회귀", "중심 기반 (K-Means)", "밀도 기반 (DBSCAN)", "분포 기반 (GMM)"]
+        ["로지스틱 회귀", "중심 기반 (K-Means)", "밀도 기반 (DBSCAN)", "분포 기반 (GMM)"],
+        key="scatter_select"
     )
     
     df_sample['LR'] = labels_lr.astype(str)
@@ -166,12 +167,13 @@ with tab_scatter:
         
     st.plotly_chart(fig_scat, use_container_width=True)
 
-# 2) 프로파일 히트맵 탭
+# 2) 교차 히트맵 탭
 with tab_heatmap:
-    st.markdown("#### 군집/분류 그룹별 수치형 특성 평균 프로파일 히트맵")
+    st.markdown("#### 모델 예측 그룹 × 사용자 동작 교차 히트맵")
     selected_model_heat = st.selectbox(
-        "히트맵으로 프로파일을 확인할 모델을 선택하세요:", 
-        ["로지스틱 회귀", "중심 기반 (K-Means)", "분포 기반 (GMM)"]
+        "교차 히트맵으로 확인할 모델을 선택하세요:", 
+        ["로지스틱 회귀", "중심 기반 (K-Means)", "분포 기반 (GMM)"],
+        key="heatmap_select"
     )
     
     map_col_dict = {
@@ -181,18 +183,15 @@ with tab_heatmap:
     }
     target_cluster_col = map_col_dict[selected_model_heat]
     
-    # 그룹별 수치형 평균 계산
-    profile_df = df_sample.groupby(target_cluster_col)[num_cols].mean().reset_index()
-    profile_melted = profile_df.melt(id_vars=target_cluster_col, value_vars=num_cols, var_name='특성', value_name='평균값')
+    # 모델 예측 그룹과 사용자 동작 간의 교차 빈도수 테이블 생성
+    heatmap_data = pd.crosstab(df_sample[target_cluster_col], df_sample['사용자_동작'])
     
-    fig_heat = px.density_heatmap(
-        profile_melted,
-        x='특성',
-        y=target_cluster_col,
-        z='평균값',
-        histfunc='avg',
-        color_continuous_scale='Viridis',
-        title=f"[{selected_model_heat}] 그룹별 행동 특성 프로파일 히트맵"
+    fig_heat = px.imshow(
+        heatmap_data,
+        text_auto=True,
+        color_continuous_scale="Blues",
+        title=f"[{selected_model_heat}] 모델 예측 그룹별 사용자 동작 몰림 현상 (빈도수)",
+        labels=dict(x="사용자 동작 (User Action)", y="예측 그룹 (Cluster / Class)", color="세션 수")
     )
     st.plotly_chart(fig_heat, use_container_width=True)
-    st.info("💡 **프로파일 히트맵 설명:** 각 모델이 분류한 그룹(0 또는 1)별로 체류시간, 상호작용 수, 가격 등의 평균적인 특성 차이를 색상 농도로 비교하여 보여줍니다.")
+    st.info("💡 **교차 히트맵 설명:** 각 모델이 분류한 그룹(0 또는 1) 안에서 유저들이 **구체적으로 어떤 `사용자_동작` (조회, 장바구니, 구매 등)에 가장 많이 몰려있는지** 빈도수를 색상 농도로 명확하게 비교할 수 있습니다.")
